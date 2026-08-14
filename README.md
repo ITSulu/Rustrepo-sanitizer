@@ -82,3 +82,10 @@ cargo bench
 
 See [benchmark guidance](docs/benchmarks.md) for how to run and record the
 Criterion performance suite.
+
+## License
+
+Licensed under the Apache License 2.0; see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). Contributors retain copyright to their own contributions.
+Unless explicitly stated otherwise, contributions are submitted under the
+Apache-2.0 license.

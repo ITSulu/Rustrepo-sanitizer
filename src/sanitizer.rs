@@ -4,7 +4,6 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
-    time::Instant,
 };
 
 use anyhow::{bail, Context, Result};
@@ -13,7 +12,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tar::{Builder, Header};
 
-use crate::security::{default_exclusion, is_binary, redact_text, safe_archive_path};
+use crate::security::{
+    default_exclusion, is_binary, is_kubernetes_secret_manifest, redact_text, safe_archive_path,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArchiveFormat {
@@ -87,7 +88,6 @@ pub fn run(config: Config) -> Result<Summary> {
     }
     let include = patterns(&config.includes)?;
     let exclude = patterns(&config.excludes)?;
-    let start = Instant::now();
     if config.verbose && !config.quiet {
         eprintln!("inspecting tracked files in {}", root.display());
     }
@@ -122,14 +122,15 @@ pub fn run(config: Config) -> Result<Summary> {
             exclusions.push(exclusion(display, "excluded by pattern"));
             continue;
         }
-        let meta = match fs::symlink_metadata(&path) {
+        let mut file = match open_regular_file(&path) {
             Ok(v) => v,
             Err(_) => {
                 exclusions.push(exclusion(display, "unreadable"));
                 continue;
             }
         };
-        if meta.file_type().is_symlink() || !meta.is_file() {
+        let meta = file.metadata()?;
+        if !meta.is_file() {
             exclusions.push(exclusion(display, "not a regular file"));
             continue;
         }
@@ -137,10 +138,14 @@ pub fn run(config: Config) -> Result<Summary> {
             exclusions.push(exclusion(display, "file exceeds maximum size"));
             continue;
         }
-        let mut data = Vec::with_capacity(meta.len() as usize);
-        File::open(&path)?.read_to_end(&mut data)?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data)?;
         if is_binary(&data) {
             exclusions.push(exclusion(display, "binary content"));
+            continue;
+        }
+        if is_kubernetes_secret_manifest(&data) {
+            exclusions.push(exclusion(display, "Kubernetes Secret manifest"));
             continue;
         }
         let (content, count) = if config.redact {
@@ -156,7 +161,7 @@ pub fn run(config: Config) -> Result<Summary> {
         let mut hasher = Sha256::new();
         hasher.update(&content);
         files.push((
-            relative,
+            display.clone(),
             content,
             ManifestFile {
                 path: display,
@@ -193,14 +198,7 @@ pub fn run(config: Config) -> Result<Summary> {
         redactions,
     };
     if !config.dry_run {
-        write_archive(
-            &output,
-            config.format,
-            &files,
-            &manifest,
-            config.report,
-            start.elapsed().as_millis(),
-        )?;
+        write_archive(&output, config.format, &files, &manifest, config.report)?;
     }
     Ok(Summary {
         included: files.len(),
@@ -263,6 +261,20 @@ fn exclusion(path: String, reason: &str) -> Exclusion {
         reason: reason.into(),
     }
 }
+fn open_regular_file(path: &Path) -> Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        Ok(OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)?)
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(File::open(path)?)
+    }
+}
 fn append(builder: &mut Builder<Box<dyn Write>>, path: &str, content: &[u8]) -> Result<()> {
     let mut header = Header::new_gnu();
     header.set_size(content.len() as u64);
@@ -277,19 +289,19 @@ fn append(builder: &mut Builder<Box<dyn Write>>, path: &str, content: &[u8]) -> 
 fn write_archive(
     output: &Path,
     format: ArchiveFormat,
-    files: &[(PathBuf, Vec<u8>, ManifestFile)],
+    files: &[(String, Vec<u8>, ManifestFile)],
     manifest: &Manifest,
     report: ReportFormat,
-    elapsed: u128,
 ) -> Result<()> {
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
+    let temporary = output.with_extension(format!("partial-{}", std::process::id()));
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(output)
-        .with_context(|| format!("creating {}", output.display()))?;
+        .open(&temporary)
+        .with_context(|| format!("creating {}", temporary.display()))?;
     let writer: Box<dyn Write> = match format {
         ArchiveFormat::TarGz => Box::new(flate2::write::GzEncoder::new(
             file,
@@ -299,51 +311,58 @@ fn write_archive(
             Box::new(zstd::stream::write::Encoder::new(file, 3)?.auto_finish())
         }
     };
-    let mut tar = Builder::new(writer);
-    let mut sums = BTreeMap::new();
-    for (path, data, entry) in files {
-        let name = path.to_string_lossy().replace('\\', "/");
-        append(&mut tar, &name, data)?;
-        sums.insert(name, entry.sha256.clone());
-    }
-    let manifest_json = serde_json::to_vec_pretty(manifest)?;
-    append(&mut tar, "manifest.json", &manifest_json)?;
-    let mut sha = String::new();
-    for (p, h) in sums {
-        sha.push_str(&format!("{h}  {p}\\n"));
-    }
-    append(&mut tar, "SHA256SUMS", sha.as_bytes())?;
-    let original_bytes: u64 = manifest.files.iter().map(|file| file.original_bytes).sum();
-    let output_bytes: u64 = manifest.files.iter().map(|file| file.output_bytes).sum();
-    let inventory = format!(
+    let result = (|| -> Result<()> {
+        let mut tar = Builder::new(writer);
+        let mut sums = BTreeMap::new();
+        for (name, data, entry) in files {
+            append(&mut tar, name, data)?;
+            sums.insert(name.clone(), entry.sha256.clone());
+        }
+        let manifest_json = serde_json::to_vec_pretty(manifest)?;
+        append(&mut tar, "manifest.json", &manifest_json)?;
+        let mut sha = String::new();
+        for (p, h) in sums {
+            sha.push_str(&format!("{h}  {p}\n"));
+        }
+        append(&mut tar, "SHA256SUMS", sha.as_bytes())?;
+        let original_bytes: u64 = manifest.files.iter().map(|file| file.original_bytes).sum();
+        let output_bytes: u64 = manifest.files.iter().map(|file| file.output_bytes).sum();
+        let inventory = format!(
         "# Repository Inventory\n\n- Files: {}\n- Original bytes: {original_bytes}\n- Sanitized bytes: {output_bytes}\n\n## Files\n\n{}\n",
         manifest.files.len(),
         manifest.files.iter().map(|file| format!("- `{}` — {} bytes — `{}`", file.path, file.output_bytes, file.sha256)).collect::<Vec<_>>().join("\n")
     );
-    append(&mut tar, "REPOSITORY-INVENTORY.md", inventory.as_bytes())?;
-    let audit = format!(
+        append(&mut tar, "REPOSITORY-INVENTORY.md", inventory.as_bytes())?;
+        let audit = format!(
         "# Secret Audit\n\n- Redactions: {}\n- Secret values are never recorded.\n\n## Excluded sensitive paths\n\n{}\n",
         manifest.redactions,
         manifest.exclusions.iter().filter(|item| item.reason.contains("key") || item.reason.contains("credential") || item.reason.contains("environment") || item.reason.contains("kube")).map(|item| format!("- `{}`: {}", item.path, item.reason)).collect::<Vec<_>>().join("\n")
     );
-    append(&mut tar, "SECRET-AUDIT.md", audit.as_bytes())?;
-    if report != ReportFormat::None {
-        let report_text = if report == ReportFormat::Json {
-            serde_json::to_vec_pretty(manifest)?
-        } else {
-            format!("# Sanitization Report\\n\\n- Repository: `{}`\\n- Branch: `{}`\\n- HEAD: `{}`\\n- Included files: {}\\n- Excluded files: {}\\n- Redactions: {}\\n- Elapsed ms: {}\\n\\n## Exclusions\\n\\n{}",manifest.repository,manifest.branch,manifest.head,manifest.files.len(),manifest.exclusions.len(),manifest.redactions,elapsed,manifest.exclusions.iter().map(|e|format!("- `{}`: {}",e.path,e.reason)).collect::<Vec<_>>().join("\\n")).into_bytes()
-        };
-        append(
-            &mut tar,
-            if report == ReportFormat::Json {
-                "SANITIZATION-REPORT.json"
+        append(&mut tar, "SECRET-AUDIT.md", audit.as_bytes())?;
+        if report != ReportFormat::None {
+            let report_text = if report == ReportFormat::Json {
+                serde_json::to_vec_pretty(manifest)?
             } else {
-                "SANITIZATION-REPORT.md"
-            },
-            &report_text,
-        )?;
+                format!("# Sanitization Report\n\n- Repository: `{}`\n- Branch: `{}`\n- HEAD: `{}`\n- Included files: {}\n- Excluded files: {}\n- Redactions: {}\n\n## Exclusions\n\n{}",manifest.repository,manifest.branch,manifest.head,manifest.files.len(),manifest.exclusions.len(),manifest.redactions,manifest.exclusions.iter().map(|e|format!("- `{}`: {}",e.path,e.reason)).collect::<Vec<_>>().join("\n")).into_bytes()
+            };
+            append(
+                &mut tar,
+                if report == ReportFormat::Json {
+                    "SANITIZATION-REPORT.json"
+                } else {
+                    "SANITIZATION-REPORT.md"
+                },
+                &report_text,
+            )?;
+        }
+        tar.finish()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+        return result;
     }
-    tar.finish()?;
+    fs::rename(&temporary, output)?;
     Ok(())
 }
 

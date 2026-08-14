@@ -117,6 +117,7 @@ pub enum PathSafetyError {
     Traversal,
     Empty,
     NonUtf8,
+    Backslash,
 }
 
 /// Produces a portable archive member name and rejects paths which could write
@@ -128,7 +129,13 @@ pub fn safe_archive_path(path: &Path) -> Result<String, PathSafetyError> {
     let mut parts = Vec::new();
     for component in path.components() {
         match component {
-            Component::Normal(part) => parts.push(part.to_str().ok_or(PathSafetyError::NonUtf8)?),
+            Component::Normal(part) => {
+                let part = part.to_str().ok_or(PathSafetyError::NonUtf8)?;
+                if part.contains('\\') {
+                    return Err(PathSafetyError::Backslash);
+                }
+                parts.push(part);
+            }
             Component::CurDir => {}
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
                 return Err(PathSafetyError::Traversal)
@@ -139,6 +146,25 @@ pub fn safe_archive_path(path: &Path) -> Result<String, PathSafetyError> {
         return Err(PathSafetyError::Empty);
     }
     Ok(parts.join("/"))
+}
+
+/// Kubernetes Secret manifests contain opaque data values and are excluded
+/// entirely rather than attempting to parse every YAML variation safely.
+pub fn is_kubernetes_secret_manifest(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    text.lines().any(|line| {
+        let trimmed = line.trim_start();
+        let Some((key, value)) = trimmed.split_once(':') else {
+            return false;
+        };
+        key.trim().eq_ignore_ascii_case("kind")
+            && value
+                .trim()
+                .trim_matches(['\'', '"'])
+                .eq_ignore_ascii_case("secret")
+    })
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -173,37 +199,44 @@ fn redact_line(line: &str) -> (String, Option<&'static str>) {
             Some("private_key"),
         );
     }
-    for separator in ['=', ':'] {
-        if let Some(position) = line.find(separator) {
-            let key = line[..position]
-                .trim()
-                .trim_matches(['\'', '"'])
-                .to_ascii_lowercase();
-            // References name a secret but do not contain one.
-            if key.contains("secretkeyref") || key.ends_with("_ref") || key.ends_with("_name") {
-                continue;
-            }
-            if [
-                "password",
-                "passwd",
-                "token",
-                "api_key",
-                "apikey",
-                "client_secret",
-                "private_key",
-                "access_key",
-                "secret_key",
-            ]
-            .iter()
-            .any(|needle| key.contains(needle))
-            {
-                let value = line[position + separator.len_utf8()..].trim();
-                if !value.is_empty() && !value.starts_with("${") {
-                    return (
-                        format!("{}{} [REDACTED]", &line[..position], separator),
-                        Some("assigned_value"),
-                    );
-                }
+    let separator = ['=', ':']
+        .into_iter()
+        .filter_map(|separator| line.find(separator).map(|position| (position, separator)))
+        .min_by_key(|(position, _)| *position);
+    if let Some((position, separator)) = separator {
+        let key = line[..position]
+            .trim()
+            .trim_matches(['\'', '"'])
+            .to_ascii_lowercase();
+        if !key.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '_' || character == '-'
+        }) {
+            return (line.to_owned(), None);
+        }
+        // References name a secret but do not contain one.
+        if key.contains("secretkeyref") || key.ends_with("_ref") || key.ends_with("_name") {
+            return (line.to_owned(), None);
+        }
+        if [
+            "password",
+            "passwd",
+            "token",
+            "api_key",
+            "apikey",
+            "client_secret",
+            "private_key",
+            "access_key",
+            "secret_key",
+        ]
+        .iter()
+        .any(|needle| key.contains(needle))
+        {
+            let value = line[position + separator.len_utf8()..].trim();
+            if !value.is_empty() && !value.starts_with("${") {
+                return (
+                    format!("{}{} [REDACTED]", &line[..position], separator),
+                    Some("assigned_value"),
+                );
             }
         }
     }
@@ -298,5 +331,12 @@ mod tests {
     fn binary_detection_is_conservative() {
         assert!(is_binary(b"hello\0world"));
         assert!(!is_binary("valid UTF-8 \u{1f980}".as_bytes()));
+    }
+
+    #[test]
+    fn recognizes_kubernetes_secret_manifest() {
+        assert!(is_kubernetes_secret_manifest(
+            b"apiVersion: v1\nkind: Secret\ndata:\n  username: c2VjcmV0\n"
+        ));
     }
 }

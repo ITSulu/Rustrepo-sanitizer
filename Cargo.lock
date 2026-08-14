@@ -488,6 +488,7 @@ dependencies = [
  "criterion",
  "flate2",
  "globset",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

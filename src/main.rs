@@ -56,7 +56,9 @@ struct SanitizeArgs {
 
 #[derive(Clone, Copy, ValueEnum)]
 enum ArchiveFormat {
+    #[value(name = "tar.gz")]
     TarGz,
+    #[value(name = "tar.zst")]
     TarZst,
 }
 #[derive(Clone, Copy, ValueEnum)]

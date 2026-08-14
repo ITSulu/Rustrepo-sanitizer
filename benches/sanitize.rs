@@ -61,6 +61,9 @@ fn invoke(repo: &Path, dry_run: bool) {
         .parent()
         .expect("fixture parent")
         .join("review.tar.zst");
+    if !dry_run {
+        let _ = fs::remove_file(&output);
+    }
     let mut command = Command::new(EXE);
     command.arg("sanitize").arg(repo).arg("--quiet");
     if dry_run {
