@@ -10,7 +10,7 @@ env:
 
 jobs:
   quality:
-    runs-on: k8s
+    runs-on: "k8s:host"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -22,14 +22,14 @@ jobs:
       - run: cargo test --all-features
 
   stable-check:
-    runs-on: k8s
+    runs-on: "k8s:host"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --all-features
 
   security-release:
-    runs-on: k8s
+    runs-on: "k8s:host"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
