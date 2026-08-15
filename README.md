@@ -47,6 +47,11 @@ itsulu-repo-sanitizer sanitize . --include-untracked --output /tmp/review.tar.gz
 itsulu-repo-sanitizer sanitize . --fail-on-secret --quiet
 ```
 
+When `--output` is omitted, the archive is named
+`<repository>-<short-git-head>-sanitized.tar.zst` (or `.tar.gz` with
+`--format tar.gz`) beside the repository. Use `--output` to choose a complete
+custom path and filename.
+
 `--dry-run` never creates an archive. There are no interactive prompts, making
 the command suitable for agents and CI. Output is ordered and timestamp-free
 where archive formats permit, so unchanged input yields reproducible output.
@@ -60,10 +65,12 @@ filenames as untrusted: tracked paths are validated, symlinks cannot escape the
 repository root, and an output archive is not re-ingested.
 
 Likely credentials in eligible text are detected and their **values** are
-replaced while retaining configuration structure. Symbolic names such as
-`DATABASE_SECRET` and Kubernetes `secretKeyRef` references are not secrets by
-themselves. Secret material is never emitted to console output, errors, reports,
-or test fixtures.
+replaced while retaining configuration structure. Detection is value-oriented:
+repository paths, Markdown links, URLs, schema keys, environment-variable
+references, OpenBao/Vault paths, and Kubernetes `secretKeyRef` or `remoteRef`
+references remain intact. Known secret containers can be excluded entirely
+when safe partial redaction is not possible. Secret material is never emitted
+to console output, errors, reports, or test fixtures.
 
 ## Exit codes
 

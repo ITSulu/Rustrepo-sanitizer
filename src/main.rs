@@ -4,7 +4,7 @@ mod security;
 use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use sanitizer::{run, Config, ReportFormat};
+use sanitizer::{default_output_path, run, Config, ReportFormat};
 
 #[derive(Parser)]
 #[command(
@@ -80,14 +80,16 @@ fn main() -> ExitCode {
         CliReportFormat::Json => ReportFormat::Json,
         CliReportFormat::None => ReportFormat::None,
     };
-    let output = args.output.unwrap_or_else(|| {
-        args.repository
-            .join(if matches!(format, sanitizer::ArchiveFormat::TarGz) {
-                "sanitized-review.tar.gz"
-            } else {
-                "sanitized-review.tar.zst"
-            })
-    });
+    let output = match args.output {
+        Some(path) => path,
+        None => match default_output_path(&args.repository, format) {
+            Ok(path) => path,
+            Err(err) => {
+                eprintln!("itsulu-repo-sanitizer: {err:#}");
+                return ExitCode::from(3);
+            }
+        },
+    };
     let config = Config {
         repository: args.repository,
         output,
