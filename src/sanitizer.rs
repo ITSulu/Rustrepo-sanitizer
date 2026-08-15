@@ -49,6 +49,37 @@ pub struct Summary {
     pub dry_run: bool,
     pub quiet: bool,
 }
+
+/// Computes the deterministic output name used when `--output` is omitted.
+pub fn default_output_path(repository: &Path, format: ArchiveFormat) -> Result<PathBuf> {
+    let root = fs::canonicalize(repository).context("repository path does not exist")?;
+    let name = root
+        .file_name()
+        .and_then(|v| v.to_str())
+        .map(|v| {
+            v.chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>()
+        })
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "repository".to_owned());
+    let head =
+        git_one(&root, &["rev-parse", "--short=7", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
+    let suffix = match format {
+        ArchiveFormat::TarGz => "tar.gz",
+        ArchiveFormat::TarZst => "tar.zst",
+    };
+    Ok(root
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{name}-{head}-sanitized.{suffix}")))
+}
 #[derive(Serialize)]
 struct Manifest {
     version: String,
@@ -405,6 +436,15 @@ mod tests {
     #[test]
     fn safe_rejects_parent() {
         assert!(safe_archive_path(Path::new("../x")).is_err());
+    }
+    #[test]
+    fn default_output_name_is_deterministic_and_safe() {
+        let d = repo();
+        let path = default_output_path(d.path(), ArchiveFormat::TarZst).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy();
+        assert!(name.ends_with("-sanitized.tar.zst"));
+        assert!(name.contains("-unknown-sanitized-") || name.contains("-sanitized."));
+        assert!(!name.contains('/'));
     }
     #[test]
     fn archive_has_no_secret() {

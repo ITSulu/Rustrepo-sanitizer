@@ -247,18 +247,34 @@ fn redact_line(line: &str) -> (String, Option<&'static str>) {
 }
 
 fn looks_like_token(word: &str) -> bool {
+    if word.contains('/') || word.contains("://") || word.starts_with('$') {
+        return false;
+    }
     let token = word.trim_matches(|character: char| {
         !character.is_ascii_alphanumeric()
             && character != '.'
             && character != '_'
             && character != '-'
     });
+    if token
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    {
+        return false;
+    }
     (token.starts_with("ghp_") && token.len() >= 20)
         || (token.starts_with("github_pat_") && token.len() >= 20)
         || (token.starts_with("AKIA")
             && token.len() == 20
             && token[4..].chars().all(|c| c.is_ascii_alphanumeric()))
-        || (token.split('.').count() == 3 && token.len() > 30)
+        || (token.split('.').count() == 3
+            && token.len() > 30
+            && token.split('.').all(|part| {
+                part.len() >= 8
+                    && part
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            }))
 }
 
 #[cfg(test)]
@@ -338,5 +354,31 @@ mod tests {
         assert!(is_kubernetes_secret_manifest(
             b"apiVersion: v1\nkind: Secret\ndata:\n  username: c2VjcmV0\n"
         ));
+    }
+
+    #[test]
+    fn preserves_paths_links_references_and_schema_names() {
+        let source = "knowledge/current/namespaces/openbao.md\n\
+docs/security/secrets.md\n../relative/path/file.md\n./scripts/check-knowledge.sh\n\
+[OpenBao](knowledge/current/namespaces/openbao.md)\n\
+https://git.itsulu.com/itsulu/Rustrepo-sanitizer\n\
+secretKeyRef:\n  name: database-credentials\n  key: password\n\
+remoteRef:\n  key: production/database\n  property: password\n\nDATABASE_PASSWORD\n${DATABASE_PASSWORD}\n$DATABASE_PASSWORD\nOPENBAO_TOKEN_FILE\npassword\ntoken\nsecret\nclient_secret\naccess_key\napi_key\n";
+        let result = redact_text(source);
+        assert_eq!(result.text, source);
+        assert!(result.counts.is_empty());
+    }
+
+    #[test]
+    fn still_redacts_high_confidence_literals() {
+        let source = "Authorization: Bearer ghp_123456789012345678901234567890123456\n\
+password: literal-password-value\n\
+eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3OCJ9.signature-value-long-enough\n";
+        let result = redact_text(source);
+        assert!(!result
+            .text
+            .contains("ghp_123456789012345678901234567890123456"));
+        assert!(!result.text.contains("literal-password-value"));
+        assert!(result.counts.values().sum::<usize>() >= 2);
     }
 }
