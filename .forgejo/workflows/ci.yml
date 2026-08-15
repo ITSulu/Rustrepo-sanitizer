@@ -10,7 +10,7 @@ env:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: k8s
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -22,14 +22,14 @@ jobs:
       - run: cargo test --all-features
 
   stable-check:
-    runs-on: ubuntu-latest
+    runs-on: k8s
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --all-features
 
   security-release:
-    runs-on: ubuntu-latest
+    runs-on: k8s
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
