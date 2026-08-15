@@ -1,9 +1,13 @@
 # itsulu-repo-sanitizer
 
-`itsulu-repo-sanitizer` creates a deterministic, compressed, sanitized view of
-any Git repository for safe AI review. It uses Git's tracked-file view by
-default, streams files rather than loading a repository into memory, and never
-requires an ITSulu or Kubernetes-specific layout.
+[**Rustrepo-sanitizer**](https://git.itsulu.com/itsulu/Rustrepo-sanitizer) creates
+a deterministic, compressed, sanitized view of any Git repository for safe AI
+review. It uses Git's tracked-file view by default, streams files rather than
+loading a repository into memory, and operates on standard Git repositories
+without assuming a project-specific directory structure.
+
+Forgejo is authoritative; GitHub mirror:
+https://github.com/ITSulu/Rustrepo-sanitizer
 
 ## Install and run
 
