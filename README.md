@@ -1,12 +1,15 @@
-# itsulu-repo-sanitizer
+# Rustrepo-sanitizer
 
 [**Rustrepo-sanitizer**](https://git.itsulu.com/itsulu/Rustrepo-sanitizer) creates
-a deterministic, compressed, sanitized view of any Git repository for safe AI
-review. It uses Git's tracked-file view by default, streams files rather than
-loading a repository into memory, and operates on standard Git repositories
-without assuming a project-specific directory structure.
+a sanitized and compressed view of any Git repository for safe AI review. The intent
+is to to automatically remove private information from a private repository for use
+with any cloud or closed weight AI model. 
 
-Forgejo is authoritative; GitHub mirror:
+This uses Git's tracked file view by default, streams files rather than
+loading a repository into memory, and operates on standard Git repositories
+without assuming a project specific directory structure.
+
+Forgejo is authoritative repositor and is mirrored by push to GitHub:
 https://github.com/ITSulu/Rustrepo-sanitizer
 
 ## Install and run
@@ -53,20 +56,20 @@ When `--output` is omitted, the archive is named
 custom path and filename.
 
 `--dry-run` never creates an archive. There are no interactive prompts, making
-the command suitable for agents and CI. Output is ordered and timestamp-free
+the command suitable for agents and CI. Output is ordered and timestamp free
 where archive formats permit, so unchanged input yields reproducible output.
 
 ## Safety model
 
 The sanitizer excludes `.git`, build products and caches, private keys,
-kubeconfigs, credential and environment-secret files, databases/dumps,
+kubeconfigs, credential and environment secret files, databases and dumps,
 snapshots, binary blobs, and oversized files. It treats repository content and
 filenames as untrusted: tracked paths are validated, symlinks cannot escape the
-repository root, and an output archive is not re-ingested.
+repository root, and an output archive is not reingested.
 
 Likely credentials in eligible text are detected and their **values** are
-replaced while retaining configuration structure. Detection is value-oriented:
-repository paths, Markdown links, URLs, schema keys, environment-variable
+replaced while retaining configuration structure. Detection is value oriented:
+repository paths, Markdown links, URLs, schema keys, environment variable
 references, OpenBao/Vault paths, and Kubernetes `secretKeyRef` or `remoteRef`
 references remain intact. Known secret containers can be excluded entirely
 when safe partial redaction is not possible. Secret material is never emitted
@@ -100,3 +103,5 @@ Licensed under the Apache License 2.0; see [LICENSE](LICENSE) and
 [NOTICE](NOTICE). Contributors retain copyright to their own contributions.
 Unless explicitly stated otherwise, contributions are submitted under the
 Apache-2.0 license.
+
+Designed and directed by Nicholas Riegel. Developed by Codex
