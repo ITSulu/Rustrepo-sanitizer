@@ -1,0 +1,15 @@
+app-id: io.itsulu.RustrepoSanitizer
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: itsulu-repo-sanitizer
+finish-args:
+  - --filesystem=host
+modules:
+  - name: rustrepo-sanitizer
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 itsulu-repo-sanitizer /app/bin/itsulu-repo-sanitizer
+    sources:
+      - type: file
+        path: itsulu-repo-sanitizer

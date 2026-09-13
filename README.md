@@ -16,13 +16,11 @@ https://github.com/ITSulu/Rustrepo-sanitizer
 
 Prebuilt downloads are published on the [Forgejo release page](https://git.itsulu.com/itsulu/Rustrepo-sanitizer/releases)
 and mirrored on [GitHub](https://github.com/ITSulu/Rustrepo-sanitizer/releases).
-Release archives include Linux x86_64 and aarch64, macOS arm64 and x86_64,
-and Windows x86_64 builds. Debian/Ubuntu `.deb`, Fedora/RHEL `.rpm`, and Arch
-`.pkg.tar.zst` packages are provided when the corresponding native packaging
-job succeeds. Alpine `.apk` is not currently published because the project
-has no maintained Alpine `abuild` signing key or validated musl package
-repository; use the generic Linux archive. Verify downloads with the
-accompanying `SHA256SUMS` file.
+Release archives and packages cover the supported Linux targets and Windows
+x86_64. Alpine `.apk` packages are built for direct download; a public Alpine
+repository is not required for this release. macOS prebuilt binaries are
+deferred until ITSulu has a native macOS build and test environment; source and
+Cargo installation remain supported. Verify every download with `SHA256SUMS`.
 
 For packages, install with the platform's normal package tool (`dpkg -i`,
 `rpm -i`, or `pacman -U`). For an archive, extract it and place the
@@ -30,8 +28,9 @@ For packages, install with the platform's normal package tool (`dpkg -i`,
 `.zip` and run the included `.exe`; macOS users can extract the archive and
 move the arm64 or x86_64 executable to a directory on `PATH`.
 
-Package managers install the `itsulu-repo-sanitizer` executable. macOS builds
-target macOS 14 Sonoma or newer; Windows archives target Windows 11.
+Package managers install the `itsulu-repo-sanitizer` executable. Windows
+archives target Windows 11. Nix and Flatpak definitions are included in the
+repository for reproducible Linux installation.
 
 ```bash
 cargo install --path .
