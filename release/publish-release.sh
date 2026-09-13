@@ -4,7 +4,7 @@ set -euo pipefail
 version=${1:?usage: publish-release.sh VERSION ARTIFACT_DIR}
 assets=${2:?usage: publish-release.sh VERSION ARTIFACT_DIR}
 tag="v${version}"
-target_commit=${RELEASE_COMMIT:-$tag}
+target_commit=${RELEASE_COMMIT:-$(git rev-parse HEAD)}
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid version" >&2; exit 2; }
 : "${FORGEJO_TOKEN:?FORGEJO_TOKEN is required}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
@@ -58,8 +58,10 @@ ensure_release "$github_api" Bearer "$GITHUB_TOKEN"
 publish_assets "$forgejo_api" token "$FORGEJO_TOKEN" "$forgejo_api/releases" true
 publish_assets "$github_api" Bearer "$GITHUB_TOKEN" "https://uploads.github.com/repos/ITSulu/Rustrepo-sanitizer/releases" false
 verify_release() {
-  local api=$1 scheme=$2 token=$3; configure "$scheme" "$token"; release=$(get "$api/releases/tags/$tag")
+  local api=$1 scheme=$2 token=$3 repo_url=$4; configure "$scheme" "$token"; release=$(get "$api/releases/tags/$tag")
   jq -e --arg t "$tag" '.tag_name == $t and (.draft|not) and (.prerelease|not)' <<<"$release" >/dev/null
+  remote_commit=$(git ls-remote "$repo_url" "refs/tags/$tag^{}" | awk 'NR==1 {print $1}')
+  [[ "$remote_commit" == "$target_commit" ]] || { echo "remote tag commit $remote_commit != $target_commit" >&2; exit 1; }
   for name in "${files[@]}"; do
     url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
     jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null
@@ -69,5 +71,5 @@ verify_release() {
     [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $name" >&2; exit 1; }
   done
 }
-verify_release "$forgejo_api" token "$FORGEJO_TOKEN"
-verify_release "$github_api" Bearer "$GITHUB_TOKEN"
+verify_release "$forgejo_api" token "$FORGEJO_TOKEN" https://git.itsulu.com/itsulu/Rustrepo-sanitizer.git
+verify_release "$github_api" Bearer "$GITHUB_TOKEN" https://github.com/ITSulu/Rustrepo-sanitizer.git
