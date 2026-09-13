@@ -2,6 +2,8 @@ name: Native release builds
 
 on:
   push:
+    branches:
+      - release-workflow-test
     tags:
       - 'v*.*.*'
   workflow_dispatch:
@@ -20,6 +22,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: ${{ github.event_name == 'push' && github.ref || format('v{0}', inputs.version) }} }
@@ -30,13 +33,19 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ "$EVENT_NAME" == push ]]; then
+          git fetch --no-tags origin refs/tags/v0.3.2:refs/tags/v0.3.2
+          if [[ "$EVENT_NAME" == push && "$REF_NAME" == release-workflow-test ]]; then
+            version=0.3.2
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_NAME" == push ]]; then
             [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'invalid release tag' >&2; exit 1; }
             version=${REF_NAME#v}
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
           else
             [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'invalid manual version' >&2; exit 1; }
             version=$INPUT_VERSION
             git ls-remote --exit-code origin "refs/tags/v$version" >/dev/null || { echo 'manual version tag does not exist' >&2; exit 1; }
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
           fi
           [[ "$(git for-each-ref "refs/tags/v$version" --format='%(objecttype)')" == tag ]] || { echo 'release tag must be annotated' >&2; exit 1; }
           [[ "$(git tag -l --format='%(contents:subject)' "v$version")" == "Release $version" ]] || { echo 'release tag authorization subject mismatch' >&2; exit 1; }
@@ -169,6 +178,7 @@ jobs:
 
   publish:
     needs: [init, linux, native, arch]
+    if: needs.init.outputs.publish == 'true'
     permissions:
       contents: write
       actions: read
