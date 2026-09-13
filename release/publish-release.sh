@@ -11,6 +11,13 @@ target_commit=${RELEASE_COMMIT:-$(git rev-parse HEAD)}
 [[ -d "$assets" ]] || { echo "artifact directory missing" >&2; exit 1; }
 mapfile -t files < <(find "$assets" -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort)
 [[ ${#files[@]} -gt 0 ]] || { echo "no release assets" >&2; exit 1; }
+[[ -f "$assets/SHA256SUMS" ]] || { echo "SHA256SUMS missing" >&2; exit 1; }
+mapfile -t manifest_files < <(awk '{print $2}' "$assets/SHA256SUMS" | sort -u)
+[[ "${files[*]}" == "${manifest_files[*]}" ]] || { echo "SHA256SUMS does not exactly cover release assets" >&2; exit 1; }
+if [[ -n "${RELEASE_EXPECTED_ASSETS:-}" ]]; then
+  mapfile -t expected_files < <(printf '%s\n' "$RELEASE_EXPECTED_ASSETS" | tr ',' '\n' | sed '/^$/d' | sort -u)
+  [[ "${files[*]}" == "${expected_files[*]}" ]] || { echo "release asset set does not match RELEASE_EXPECTED_ASSETS" >&2; exit 1; }
+fi
 (cd "$assets" && sha256sum -c SHA256SUMS)
 
 forgejo_api=https://git.itsulu.com/api/v1/repos/itsulu/Rustrepo-sanitizer
