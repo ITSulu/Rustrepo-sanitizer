@@ -33,7 +33,7 @@ ensure_release() {
   local body code; body=$(mktemp)
   code=$(curl -sS --config "$cfg" -o "$body" -w '%{http_code}' "$api/releases/tags/$tag")
   case "$code" in
-    200) curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X PATCH "$api/releases/tags/$tag" \
+    200) local id; id=$(jq -r '.id' <"$body"); curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X PATCH "$api/releases/$id" \
       --data "$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')" >/dev/null ;;
     404) curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X POST "$api/releases" \
       --data "$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')" >/dev/null ;;
