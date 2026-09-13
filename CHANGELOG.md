@@ -19,6 +19,12 @@ This project follows the `MAJOR.MINOR.PATCH` policy documented in
   backend capability reporting.
 - Added ZIP AES-256 password input via file or stdin.
 
+## 0.3.1
+
+- Git chronology now includes every unique commit reachable from all local
+  refs, including unmerged and tag-only histories, in deterministic
+  topological order with sanitized subjects.
+
 ## 0.1.0
 
 - Initial deterministic Git repository sanitization release.

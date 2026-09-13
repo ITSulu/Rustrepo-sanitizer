@@ -72,8 +72,9 @@ formats require additional backends and are intentionally rejected.
 dependencies. External invocations use structured process arguments and
 validate exit status.
 
-Every archive also contains `.git/COMMIT-HISTORY.txt`, generated from Git's
-actual chronological history. It contains only abbreviated IDs and sanitized
+Every archive also contains `.git/COMMIT-HISTORY.txt`, generated from every
+commit reachable from local Git refs in deterministic topological order. It
+contains only abbreviated IDs and sanitized
 subject lines; the physical `.git` database remains excluded.
 
 `--dry-run` never creates an archive. There are no interactive prompts, making
