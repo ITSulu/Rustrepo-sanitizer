@@ -19,6 +19,7 @@ if [[ -n "${RELEASE_EXPECTED_ASSETS:-}" ]]; then
   [[ "${files[*]}" == "${expected_files[*]}" ]] || { echo "release asset set does not match RELEASE_EXPECTED_ASSETS" >&2; exit 1; }
 fi
 (cd "$assets" && sha256sum -c SHA256SUMS)
+upload_files=("${files[@]}" SHA256SUMS)
 
 forgejo_api=https://git.itsulu.com/api/v1/repos/itsulu/Rustrepo-sanitizer
 github_api=https://api.github.com/repos/ITSulu/Rustrepo-sanitizer
@@ -44,7 +45,7 @@ publish_assets() {
   local api=$1 scheme=$2 token=$3 upload=$4 forgejo=$5; configure "$scheme" "$token"
   local release id name file expected asset_id url remote actual
   release=$(get "$api/releases/tags/$tag"); id=$(jq -r '.id' <<<"$release")
-  for name in "${files[@]}"; do
+  for name in "${upload_files[@]}"; do
     file="$assets/$name"; expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
     asset_id=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$release" | head -1)
     if [[ -n "$asset_id" ]]; then
@@ -69,7 +70,7 @@ verify_release() {
   jq -e --arg t "$tag" '.tag_name == $t and (.draft|not) and (.prerelease|not)' <<<"$release" >/dev/null
   remote_commit=$(git ls-remote "$repo_url" "refs/tags/$tag^{}" | awk 'NR==1 {print $1}')
   [[ "$remote_commit" == "$target_commit" ]] || { echo "remote tag commit $remote_commit != $target_commit" >&2; exit 1; }
-  for name in "${files[@]}"; do
+  for name in "${upload_files[@]}"; do
     url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
     jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null
     remote=$(mktemp); curl -fsS -L "$url" -o "$remote"
