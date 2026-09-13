@@ -50,9 +50,19 @@ publish_assets() {
     asset_id=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$release" | head -1)
     if [[ -n "$asset_id" ]]; then
       url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
-      remote=$(mktemp); curl -fsS -L "$url" -o "$remote"; actual=$(sha256sum "$remote" | awk '{print $1}'); rm -f "$remote"
-      [[ "$actual" == "$expected" ]] && continue
-      curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
+      remote=$(mktemp); curl -fsS -L "$url" -o "$remote"
+      if [[ "$name" == SHA256SUMS ]]; then
+        cmp -s "$remote" "$assets/SHA256SUMS" && { rm -f "$remote"; continue; }
+      else
+        actual=$(sha256sum "$remote" | awk '{print $1}')
+        [[ "$actual" == "$expected" ]] && { rm -f "$remote"; continue; }
+      fi
+      rm -f "$remote"
+      if [[ "$forgejo" == true ]]; then
+        curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
+      else
+        curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
+      fi
     fi
     if [[ "$forgejo" == true ]]; then
       curl -fsS --config "$cfg" -F "attachment=@$file" "$upload/$id/assets?name=$name" >/dev/null
@@ -74,9 +84,14 @@ verify_release() {
     url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
     jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null
     remote=$(mktemp); curl -fsS -L "$url" -o "$remote"
-    actual=$(sha256sum "$remote" | awk '{print $1}'); rm -f "$remote"
-    expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
-    [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $name" >&2; exit 1; }
+    if [[ "$name" == SHA256SUMS ]]; then
+      cmp -s "$remote" "$assets/SHA256SUMS" || { echo "manifest mismatch for $repo_url" >&2; rm -f "$remote"; exit 1; }
+    else
+      actual=$(sha256sum "$remote" | awk '{print $1}')
+      expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
+      [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $name" >&2; rm -f "$remote"; exit 1; }
+    fi
+    rm -f "$remote"
   done
 }
 verify_release "$forgejo_api" token "$FORGEJO_TOKEN" https://git.itsulu.com/itsulu/Rustrepo-sanitizer.git
