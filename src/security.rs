@@ -117,7 +117,6 @@ pub enum PathSafetyError {
     Traversal,
     Empty,
     NonUtf8,
-    Backslash,
 }
 
 /// Produces a portable archive member name and rejects paths which could write
@@ -126,14 +125,19 @@ pub fn safe_archive_path(path: &Path) -> Result<String, PathSafetyError> {
     if path.is_absolute() {
         return Err(PathSafetyError::Absolute);
     }
+    let raw = path.to_str().ok_or(PathSafetyError::NonUtf8)?;
+    if raw.starts_with('/')
+        || raw.starts_with('\\')
+        || raw.as_bytes().get(1) == Some(&b':')
+        || raw.contains("\\")
+    {
+        return Err(PathSafetyError::Absolute);
+    }
     let mut parts = Vec::new();
     for component in path.components() {
         match component {
             Component::Normal(part) => {
                 let part = part.to_str().ok_or(PathSafetyError::NonUtf8)?;
-                if part.contains('\\') {
-                    return Err(PathSafetyError::Backslash);
-                }
                 parts.push(part);
             }
             Component::CurDir => {}

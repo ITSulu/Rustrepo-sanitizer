@@ -1,6 +1,6 @@
 [package]
 name = "itsulu-repo-sanitizer"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Create deterministic, sanitized AI review bundles from Git repositories"
 license = "Apache-2.0"
@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
+chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
 flate2 = "1.0"
 globset = "0.4"
@@ -22,6 +23,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 tar = "0.4"
 zstd = "0.13"
+zip = { version = "2.4", default-features = false, features = ["aes-crypto", "deflate", "zstd"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

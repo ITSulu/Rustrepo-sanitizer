@@ -1,10 +1,10 @@
 mod sanitizer;
 mod security;
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{io::Read, path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use sanitizer::{default_output_path, run, Config, ReportFormat};
+use sanitizer::{default_output_path, run, ArchiveFormat, Compression, Config, ReportFormat};
 
 #[derive(Parser)]
 #[command(
@@ -20,6 +20,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Sanitize(SanitizeArgs),
+    ListFormats,
 }
 
 #[derive(Args)]
@@ -28,8 +29,10 @@ struct SanitizeArgs {
     repository: PathBuf,
     #[arg(short, long)]
     output: Option<PathBuf>,
-    #[arg(long, value_enum, default_value_t = ArchiveFormat::TarZst)]
-    format: ArchiveFormat,
+    #[arg(long, visible_alias = "format", value_enum, default_value_t = ArchiveFormat::Tar)]
+    archive: ArchiveFormat,
+    #[arg(long, value_enum, default_value_t = Compression::Zstd)]
+    compression: Compression,
     #[arg(long, value_enum, default_value_t = CliReportFormat::Markdown)]
     report: CliReportFormat,
     #[arg(long)]
@@ -48,19 +51,18 @@ struct SanitizeArgs {
     fail_on_secret: bool,
     #[arg(long)]
     dry_run: bool,
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    timestamp_name: bool,
+    #[arg(long, conflicts_with = "password_stdin")]
+    password_file: Option<PathBuf>,
+    #[arg(long, conflicts_with = "password_file")]
+    password_stdin: bool,
     #[arg(short, long)]
     verbose: bool,
     #[arg(short, long)]
     quiet: bool,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum ArchiveFormat {
-    #[value(name = "tar.gz")]
-    TarGz,
-    #[value(name = "tar.zst")]
-    TarZst,
-}
 #[derive(Clone, Copy, ValueEnum)]
 enum CliReportFormat {
     Markdown,
@@ -70,11 +72,14 @@ enum CliReportFormat {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let Command::Sanitize(args) = cli.command;
-    let format = match args.format {
-        ArchiveFormat::TarGz => sanitizer::ArchiveFormat::TarGz,
-        ArchiveFormat::TarZst => sanitizer::ArchiveFormat::TarZst,
+    if matches!(cli.command, Command::ListFormats) {
+        sanitizer::print_formats();
+        return ExitCode::SUCCESS;
+    }
+    let Command::Sanitize(args) = cli.command else {
+        unreachable!()
     };
+    let format = args.archive;
     let report = match args.report {
         CliReportFormat::Markdown => ReportFormat::Markdown,
         CliReportFormat::Json => ReportFormat::Json,
@@ -82,18 +87,35 @@ fn main() -> ExitCode {
     };
     let output = match args.output {
         Some(path) => path,
-        None => match default_output_path(&args.repository, format) {
+        None => match default_output_path(
+            &args.repository,
+            format,
+            args.compression,
+            args.timestamp_name,
+        ) {
             Ok(path) => path,
             Err(err) => {
                 eprintln!("itsulu-repo-sanitizer: {err:#}");
-                return ExitCode::from(3);
+                return ExitCode::from(if err.to_string().contains("compression") {
+                    2
+                } else {
+                    3
+                });
             }
         },
+    };
+    let password = match read_password(args.password_file.as_deref(), args.password_stdin) {
+        Ok(password) => password,
+        Err(err) => {
+            eprintln!("itsulu-repo-sanitizer: {err}");
+            return ExitCode::from(2);
+        }
     };
     let config = Config {
         repository: args.repository,
         output,
         format,
+        compression: args.compression,
         report,
         include_untracked: args.include_untracked,
         max_file_size: args.max_file_size,
@@ -102,6 +124,8 @@ fn main() -> ExitCode {
         redact: if args.no_redact { false } else { args.redact },
         fail_on_secret: args.fail_on_secret,
         dry_run: args.dry_run,
+        password,
+        password_file: args.password_file,
         verbose: args.verbose,
         quiet: args.quiet,
     };
@@ -132,5 +156,29 @@ fn main() -> ExitCode {
             };
             ExitCode::from(code)
         }
+    }
+}
+
+fn read_password(
+    path: Option<&std::path::Path>,
+    from_stdin: bool,
+) -> Result<Option<String>, String> {
+    let value = if let Some(path) = path {
+        std::fs::read_to_string(path).map_err(|_| "unable to read password file".to_owned())?
+    } else if from_stdin {
+        let mut value = String::new();
+        std::io::stdin()
+            .read_to_string(&mut value)
+            .map_err(|_| "unable to read password from stdin".to_owned())?;
+        value
+    } else {
+        return Ok(None);
+    };
+    let value = value.strip_suffix('\n').unwrap_or(&value);
+    let value = value.strip_suffix('\r').unwrap_or(value).to_owned();
+    if value.is_empty() {
+        Err("password must not be empty".to_owned())
+    } else {
+        Ok(Some(value))
     }
 }

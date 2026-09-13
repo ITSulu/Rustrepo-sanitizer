@@ -9,7 +9,7 @@ This uses Git's tracked file view by default, streams files rather than
 loading a repository into memory, and operates on standard Git repositories
 without assuming a project specific directory structure.
 
-Forgejo is authoritative repositor and is mirrored by push to GitHub:
+Forgejo is authoritative repository and is mirrored by push to GitHub:
 https://github.com/ITSulu/Rustrepo-sanitizer
 
 ## Install and run
@@ -30,7 +30,13 @@ Reports contain counts, paths, reasons, and checksums—not secret values.
 itsulu-repo-sanitizer sanitize [REPOSITORY] [OPTIONS]
 
   --output PATH                 Archive destination
-  --format tar.gz|tar.zst       Archive compression format
+  --archive tar                 Archive/container format
+  --archive zip|7z              ZIP or 7z container (7z requires the `7z` tool)
+  --compression none|gzip|zstd|lz4|lzip|lzma|lzo|lrzip|xz
+                                Compression codec (`none` is TAR only)
+  --password-file PATH          Read ZIP AES password without exposing it in arguments
+  --password-stdin              Read ZIP AES password from standard input
+  --timestamp-name false        Omit wall-clock data from default filenames
   --report markdown|json|none   Report format
   --include-untracked           Consider untracked regular files too
   --max-file-size SIZE          Per-file size ceiling (for example, 2MiB)
@@ -48,12 +54,27 @@ Examples:
 itsulu-repo-sanitizer sanitize . --dry-run --verbose
 itsulu-repo-sanitizer sanitize . --include-untracked --output /tmp/review.tar.gz
 itsulu-repo-sanitizer sanitize . --fail-on-secret --quiet
+itsulu-repo-sanitizer list-formats
 ```
 
 When `--output` is omitted, the archive is named
-`<repository>-<short-git-head>-sanitized.tar.zst` (or `.tar.gz` with
-`--format tar.gz`) beside the repository. Use `--output` to choose a complete
-custom path and filename.
+`<repository>-YYYY-Mmm-DD-hh-mm-<short-git-head>-sanitized.tar.{gz,zst}` beside
+the repository. The wall-clock timestamp is filename-only; archive members
+remain reproducible. Use `--timestamp-name off` for a stable CI-oriented
+default filename. Current backends are internal Rust TAR (gzip/Zstandard)
+and ZIP (Deflate/Zstandard), plus external 7z and TAR stream-compressor
+backends (LZ4, lzip, LZMA, LZO, lrzip, and XZ). ZIP password mode
+uses AES-256; passwords are never written to archives, reports, diagnostics,
+or manifests. Additional codecs and password encryption for non-ZIP
+formats require additional backends and are intentionally rejected.
+
+`list-formats` reports supported formats and detected external tool
+dependencies. External invocations use structured process arguments and
+validate exit status.
+
+Every archive also contains `.git/COMMIT-HISTORY.txt`, generated from Git's
+actual chronological history. It contains only abbreviated IDs and sanitized
+subject lines; the physical `.git` database remains excluded.
 
 `--dry-run` never creates an archive. There are no interactive prompts, making
 the command suitable for agents and CI. Output is ordered and timestamp free
