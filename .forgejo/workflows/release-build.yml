@@ -9,7 +9,7 @@ on:
 
 jobs:
   linux-x86_64:
-    runs-on: k8s
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
