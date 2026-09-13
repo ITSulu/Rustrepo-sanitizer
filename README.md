@@ -14,6 +14,25 @@ https://github.com/ITSulu/Rustrepo-sanitizer
 
 ## Install and run
 
+Prebuilt downloads are published on the [Forgejo release page](https://git.itsulu.com/itsulu/Rustrepo-sanitizer/releases)
+and mirrored on [GitHub](https://github.com/ITSulu/Rustrepo-sanitizer/releases).
+Release archives include Linux x86_64 and aarch64, macOS arm64 and x86_64,
+and Windows x86_64 builds. Debian/Ubuntu `.deb`, Fedora/RHEL `.rpm`, and Arch
+`.pkg.tar.zst` packages are provided when the corresponding native packaging
+job succeeds. Alpine `.apk` is not currently published because the project
+has no maintained Alpine `abuild` signing key or validated musl package
+repository; use the generic Linux archive. Verify downloads with the
+accompanying `SHA256SUMS` file.
+
+For packages, install with the platform's normal package tool (`dpkg -i`,
+`rpm -i`, or `pacman -U`). For an archive, extract it and place the
+`itsulu-repo-sanitizer` executable on `PATH`. Windows users can extract the
+`.zip` and run the included `.exe`; macOS users can extract the archive and
+move the arm64 or x86_64 executable to a directory on `PATH`.
+
+Package managers install the `itsulu-repo-sanitizer` executable. macOS builds
+target macOS 14 Sonoma or newer; Windows archives target Windows 11.
+
 ```bash
 cargo install --path .
 itsulu-repo-sanitizer sanitize .

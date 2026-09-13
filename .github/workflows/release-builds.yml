@@ -1,0 +1,149 @@
+name: Native release builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        description: Release version without the v prefix
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: v${{ inputs.version }}, fetch-depth: 1 }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Install package builders
+        run: cargo install cargo-deb cargo-generate-rpm --locked
+      - name: Package Linux archive
+        shell: bash
+        run: |
+          test "$(git describe --tags --exact-match HEAD)" = "v${{ inputs.version }}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ inputs.version }}"
+          test "$(target/release/itsulu-repo-sanitizer --version | awk '{print $NF}')" = "${{ inputs.version }}"
+          target/release/itsulu-repo-sanitizer --help >/dev/null
+          rm -rf dist
+          RELEASE_PLATFORM=linux RELEASE_ARCH=${{ matrix.arch }} RELEASE_FORMATS=deb,rpm \
+            release/build-artifacts.sh "${{ inputs.version }}" dist target/release/itsulu-repo-sanitizer
+          (cd dist && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/
+
+  native:
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos
+            arch: arm64
+          - os: macos-15-intel
+            platform: macos
+            arch: x86_64
+          - os: windows-2025
+            platform: windows
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: v${{ inputs.version }}, fetch-depth: 1 }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Verify native binary
+        if: runner.os != 'Windows'
+        run: |
+          test "$(target/release/itsulu-repo-sanitizer --version | awk '{print $NF}')" = "${{ inputs.version }}"
+          target/release/itsulu-repo-sanitizer --help >/dev/null
+      - name: Verify Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ((& target/release/itsulu-repo-sanitizer.exe --version).Split()[-1] -ne "${{ inputs.version }}") { exit 1 }
+          & target/release/itsulu-repo-sanitizer.exe --help | Out-Null
+      - name: Package Unix artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist stage
+          cp target/release/itsulu-repo-sanitizer stage/itsulu-repo-sanitizer
+          tar -C stage -czf "dist/rustrepo-sanitizer-${{ inputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" itsulu-repo-sanitizer
+          (cd dist && shasum -a 256 -- *.tar.gz > SHA256SUMS)
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist,stage | Out-Null
+          Copy-Item target/release/itsulu-repo-sanitizer.exe stage/itsulu-repo-sanitizer.exe
+          Compress-Archive -Path stage/itsulu-repo-sanitizer.exe -DestinationPath "dist/rustrepo-sanitizer-${{ inputs.version }}-windows-${{ matrix.arch }}.zip"
+          Get-FileHash dist/*.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Set-Content dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/
+
+  arch:
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: v${{ inputs.version }}, fetch-depth: 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: source
+      - name: Build Arch package in native Arch container
+        shell: bash
+        run: |
+          mkdir -p target/release dist
+          tar -xzf source/rustrepo-sanitizer-${{ inputs.version }}-linux-x86_64.tar.gz \
+            -C target/release
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" archlinux:base-devel bash -eu -c '
+            pacman -Sy --noconfirm --needed archlinux-keyring >/dev/null
+            useradd -m builder
+            chown -R builder:builder /src
+            su builder -c "cd /src && RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS=arch release/build-artifacts.sh '${{ inputs.version }}' dist target/release/itsulu-repo-sanitizer"
+          '
+          rm -f dist/rustrepo-sanitizer-${{ inputs.version }}-linux-x86_64.tar.gz
+          (cd dist && sha256sum -- *.pkg.tar.zst > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-x86_64
+          path: dist/
+
+  publish:
+    needs: [linux, native, arch]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: v${{ inputs.version }}, fetch-depth: 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*'
+          merge-multiple: true
+          path: dist
+      - name: Record release commit
+        run: echo "RELEASE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Rebuild aggregate checksums
+        run: |
+          find dist -maxdepth 1 -type f -name SHA256SUMS -delete
+          (cd dist && sha256sum -- * | grep -v 'SHA256SUMS$' > SHA256SUMS)
+      - name: Publish and verify both releases
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES_FILE: release/${{ inputs.version }}.md
+        run: release/publish-release.sh "${{ inputs.version }}" dist

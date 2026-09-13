@@ -1,6 +1,6 @@
 [package]
 name = "itsulu-repo-sanitizer"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Create deterministic, sanitized AI review bundles from Git repositories"
 license = "Apache-2.0"
@@ -28,6 +28,18 @@ zip = { version = "2.4", default-features = false, features = ["aes-crypto", "de
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.14"
+
+[package.metadata.deb]
+maintainer = "ITSulu, LLC"
+copyright = "2026, ITSulu, LLC"
+extended-description = "Create deterministic, sanitized AI review bundles from Git repositories."
+depends = ""
+section = "utils"
+priority = "optional"
+assets = [["target/release/itsulu-repo-sanitizer", "usr/bin/itsulu-repo-sanitizer", "755"]]
+
+[package.metadata.generate-rpm]
+assets = [{ source = "target/release/itsulu-repo-sanitizer", dest = "/usr/bin/itsulu-repo-sanitizer", mode = "755" }]
 
 [[bench]]
 name = "sanitize"

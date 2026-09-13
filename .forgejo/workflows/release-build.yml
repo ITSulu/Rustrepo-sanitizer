@@ -1,0 +1,28 @@
+name: Release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        description: Release version without the v prefix
+
+jobs:
+  linux-x86_64:
+    runs-on: k8s
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: v${{ inputs.version }}
+      - uses: https://github.com/dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: |
+          test "$(git describe --tags --exact-match HEAD)" = "v${{ inputs.version }}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ inputs.version }}"
+          mkdir -p dist
+          cargo install cargo-deb cargo-generate-rpm --locked
+          RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS=deb,rpm release/build-artifacts.sh "${{ inputs.version }}" dist
+          (cd dist && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with: { name: linux-x86_64, path: dist/ }

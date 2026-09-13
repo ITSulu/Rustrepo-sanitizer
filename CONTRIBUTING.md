@@ -19,3 +19,13 @@ from a merged pull request, using an annotated `vMAJOR.MINOR.PATCH` tag.
 Contributors retain copyright in their contributions. Contributions are
 licensed under Apache-2.0 unless explicitly stated otherwise; no CLA or
 copyright assignment is required.
+
+## Release engineering
+
+Build artifacts with `release/build-artifacts.sh VERSION OUTPUT_DIR` using a
+native CI runner and the `RELEASE_PLATFORM`, `RELEASE_ARCH`, and optional
+`RELEASE_FORMATS` environment variables. The script checks the binary version,
+uses consistent names, and writes `SHA256SUMS`. `release/publish-release.sh`
+publishes the same directory idempotently to Forgejo and GitHub; provide
+`FORGEJO_TOKEN` and `GITHUB_TOKEN` only through the CI secret store. Forgejo
+tags and releases remain authoritative.
