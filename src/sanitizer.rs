@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -347,19 +347,40 @@ pub fn run(config: Config) -> Result<Summary> {
 }
 
 fn git_history(root: &Path, redact: bool) -> Result<String> {
+    // Git's topo-order traversal is the ordering contract: parents precede
+    // children in reverse chronology, while Git resolves equivalent ties
+    // consistently for a fixed set of refs.
     let out = Command::new("git")
         .current_dir(root)
-        .args(["log", "--format=%h%x09%s", "--reverse"])
+        .args([
+            "log",
+            "--all",
+            "--topo-order",
+            "--reverse",
+            "--format=%H%x09%h%x09%s",
+        ])
         .output()
         .context("reading git history")?;
     if !out.status.success() {
         bail!("git history failed (repository may be malformed or shallow)");
     }
     let mut result = String::new();
+    let mut emitted = HashSet::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
-        let Some((id, subject)) = line.split_once('\t') else {
+        let mut fields = line.splitn(3, '\t');
+        let Some(full_id) = fields.next() else {
             continue;
         };
+        let Some(id) = fields.next() else {
+            continue;
+        };
+        let Some(subject) = fields.next() else {
+            continue;
+        };
+        if !emitted.insert(full_id) {
+            continue;
+        }
+        let subject = subject.lines().next().unwrap_or_default();
         let subject = if redact {
             crate::security::redact_text(subject).text
         } else {
@@ -889,5 +910,118 @@ mod tests {
         assert!(!history.contains("historical-secret"));
         assert!(!history.contains("second line"));
         assert_eq!(history.lines().count(), 2);
+    }
+
+    #[test]
+    fn history_includes_each_commit_from_all_refs_once_in_topological_order() {
+        let d = tempfile::tempdir().unwrap();
+        git(d.path(), &["init", "-q"]);
+        git(d.path(), &["branch", "-M", "main"]);
+        git_config(d.path());
+        commit(d.path(), "main root");
+        git(d.path(), &["branch", "feature"]);
+        commit(d.path(), "main before merge");
+        git(d.path(), &["checkout", "-q", "feature"]);
+        commit(d.path(), "TOKEN=feature-secret");
+        commit(d.path(), "feature tip\n\nsecond line");
+        git(d.path(), &["checkout", "-q", "main"]);
+        git(
+            d.path(),
+            &["merge", "--no-ff", "-q", "feature", "-m", "merge feature"],
+        );
+        commit(d.path(), "main tip");
+        git(d.path(), &["checkout", "-q", "--orphan", "tag-branch"]);
+        git(d.path(), &["rm", "-q", "-rf", "."]);
+        commit(d.path(), "tag-only commit");
+        git(d.path(), &["tag", "tag-only"]);
+        git(d.path(), &["checkout", "-q", "main"]);
+
+        let history = git_history(d.path(), true).unwrap();
+        let lines: Vec<_> = history.lines().collect();
+        assert_eq!(lines.len(), 7);
+        assert!(lines
+            .iter()
+            .any(|line| !line.contains("feature-secret") && line.contains("[REDACTED]")));
+        assert!(lines.iter().any(|line| line.ends_with("feature tip")));
+        assert!(lines.iter().any(|line| line.ends_with("tag-only commit")));
+        assert!(lines.iter().any(|line| line.ends_with("merge feature")));
+        let expected: Vec<_> = String::from_utf8_lossy(
+            &Command::new("git")
+                .args(["rev-list", "--all", "--topo-order"])
+                .current_dir(d.path())
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .lines()
+        .map(|id| git(d.path(), &["rev-parse", "--short", id]))
+        .collect();
+        let actual: Vec<_> = lines
+            .iter()
+            .map(|line| line.split_once(' ').unwrap().0.to_owned())
+            .collect();
+        assert_eq!(actual.len(), expected.len());
+        assert_eq!(
+            actual
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            actual.len()
+        );
+        assert_eq!(
+            actual
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+            expected.into_iter().collect()
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.ends_with("main root"))
+                .count(),
+            1
+        );
+        assert!(
+            lines
+                .iter()
+                .position(|line| line.ends_with("main root"))
+                .unwrap()
+                < lines
+                    .iter()
+                    .position(|line| line.ends_with("merge feature"))
+                    .unwrap()
+        );
+        assert_eq!(history, git_history(d.path(), true).unwrap());
+        assert!(!history.contains("Test"));
+        assert!(!history.contains("example.invalid"));
+        assert!(!history.contains("refs/") && !history.contains("objects/"));
+    }
+
+    fn git_config(path: &Path) {
+        git(path, &["config", "user.name", "Test"]);
+        git(path, &["config", "user.email", "test@example.invalid"]);
+    }
+
+    fn commit(path: &Path, message: &str) {
+        let file = format!("file-{}", message.len());
+        fs::write(path.join(&file), message).unwrap();
+        git(path, &["add", &file]);
+        git(path, &["commit", "-q", "-m", message]);
+    }
+
+    fn git(path: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?}: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 }
