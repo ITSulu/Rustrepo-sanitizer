@@ -11,12 +11,13 @@ on:
         description: Release version without the v prefix
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 jobs:
   init:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -37,12 +38,16 @@ jobs:
             version=$INPUT_VERSION
             git ls-remote --exit-code origin "refs/tags/v$version" >/dev/null || { echo 'manual version tag does not exist' >&2; exit 1; }
           fi
+          [[ "$(git for-each-ref "refs/tags/v$version" --format='%(objecttype)')" == tag ]] || { echo 'release tag must be annotated' >&2; exit 1; }
+          [[ "$(git tag -l --format='%(contents:subject)' "v$version")" == "Release $version" ]] || { echo 'release tag authorization subject mismatch' >&2; exit 1; }
           cargo_version=$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)
           [[ "$cargo_version" == "$version" ]] || { echo "Cargo version $cargo_version != $version" >&2; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   linux:
     needs: init
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +81,8 @@ jobs:
 
   native:
     needs: init
+    permissions:
+      contents: read
     env:
       MACOSX_DEPLOYMENT_TARGET: '14.0'
     strategy:
@@ -131,6 +138,8 @@ jobs:
 
   arch:
     needs: [init, linux]
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -160,6 +169,9 @@ jobs:
 
   publish:
     needs: [init, linux, native, arch]
+    permissions:
+      contents: write
+      actions: read
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -180,5 +192,4 @@ jobs:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_NOTES_FILE: release/${{ needs.init.outputs.version }}.md
-          RELEASE_COMMIT: ${{ github.sha }}
         run: release/publish-release.sh "${{ needs.init.outputs.version }}" dist
