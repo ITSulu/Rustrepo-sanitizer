@@ -11,6 +11,14 @@ This project follows the `MAJOR.MINOR.PATCH` policy documented in
   continuing to redact high-confidence credentials.
 - Added deterministic repository/revision-based default archive names.
 
+## 0.3.0
+
+- Added sanitized chronological Git history to generated archives.
+- Added timestamped and CI-stable default archive names.
+- Added ZIP, 7z, and multiple TAR compression selections with explicit
+  backend capability reporting.
+- Added ZIP AES-256 password input via file or stdin.
+
 ## 0.1.0
 
 - Initial deterministic Git repository sanitization release.

@@ -16,10 +16,65 @@ use crate::security::{
     default_exclusion, is_binary, is_kubernetes_secret_manifest, redact_text, safe_archive_path,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum ArchiveFormat {
-    TarGz,
-    TarZst,
+    Tar,
+    Zip,
+    #[value(name = "7z", alias = "seven-zip")]
+    SevenZip,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum Compression {
+    #[value(name = "none")]
+    None,
+    Gzip,
+    Zstd,
+    Lz4,
+    Lzip,
+    Lzma,
+    Lzo,
+    Lrzip,
+    Xz,
+}
+
+/// Prints the compatibility matrix from the same capability declarations used
+/// by the CLI. Unsupported formats are listed deliberately, with no implication
+/// that a raw stream is a valid archive.
+pub fn print_formats() {
+    println!("format\textension\tbackend\tpassword\tdependency");
+    println!("tar.gz\t.tar.gz\tinternal Rust\tno\tavailable");
+    println!("tar.zst\t.tar.zst\tinternal Rust\tno\tavailable");
+    println!("tar.lz4/tar.lz/tar.lzma/tar.lzo/tar.lrz/tar.xz\tstream\texternal fallback\tno\tdetected per request");
+    println!("zip\t.zip\tinternal Rust\tAES-256\tavailable");
+    println!(
+        "7z\t.7z\texternal fallback\tno\t{}",
+        if command_available("7z") {
+            "available"
+        } else {
+            "missing"
+        }
+    );
+    for (name, extension, tool) in [
+        ("lrzip", ".lrz", "lrzip"),
+        ("lzip", ".lz", "lzip"),
+        ("lzo", ".lzo", "lzop"),
+    ] {
+        println!(
+            "{name}\t{extension}\texternal fallback\tsee tool\t{}",
+            if command_available(tool) {
+                "available"
+            } else {
+                "missing"
+            }
+        );
+    }
+}
+
+fn command_available(name: &str) -> bool {
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .any(|dir| dir.join(name).is_file())
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReportFormat {
@@ -31,6 +86,7 @@ pub struct Config {
     pub repository: PathBuf,
     pub output: PathBuf,
     pub format: ArchiveFormat,
+    pub compression: Compression,
     pub report: ReportFormat,
     pub include_untracked: bool,
     pub max_file_size: u64,
@@ -39,6 +95,8 @@ pub struct Config {
     pub redact: bool,
     pub fail_on_secret: bool,
     pub dry_run: bool,
+    pub password: Option<String>,
+    pub password_file: Option<PathBuf>,
     pub verbose: bool,
     pub quiet: bool,
 }
@@ -51,7 +109,12 @@ pub struct Summary {
 }
 
 /// Computes the deterministic output name used when `--output` is omitted.
-pub fn default_output_path(repository: &Path, format: ArchiveFormat) -> Result<PathBuf> {
+pub fn default_output_path(
+    repository: &Path,
+    format: ArchiveFormat,
+    compression: Compression,
+    timestamp_name: bool,
+) -> Result<PathBuf> {
     let root = fs::canonicalize(repository).context("repository path does not exist")?;
     let name = root
         .file_name()
@@ -71,14 +134,35 @@ pub fn default_output_path(repository: &Path, format: ArchiveFormat) -> Result<P
         .unwrap_or_else(|| "repository".to_owned());
     let head =
         git_one(&root, &["rev-parse", "--short=7", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-    let suffix = match format {
-        ArchiveFormat::TarGz => "tar.gz",
-        ArchiveFormat::TarZst => "tar.zst",
+    let suffix = match (format, compression) {
+        (ArchiveFormat::Tar, Compression::None) => "tar",
+        (ArchiveFormat::Tar, Compression::Gzip) => "tar.gz",
+        (ArchiveFormat::Tar, Compression::Zstd) => "tar.zst",
+        (ArchiveFormat::Tar, Compression::Lz4) => "tar.lz4",
+        (ArchiveFormat::Tar, Compression::Lzip) => "tar.lz",
+        (ArchiveFormat::Tar, Compression::Lzma) => "tar.lzma",
+        (ArchiveFormat::Tar, Compression::Lzo) => "tar.lzo",
+        (ArchiveFormat::Tar, Compression::Lrzip) => "tar.lrz",
+        (ArchiveFormat::Tar, Compression::Xz) => "tar.xz",
+        (ArchiveFormat::Zip, Compression::Gzip) | (ArchiveFormat::Zip, Compression::Zstd) => "zip",
+        (ArchiveFormat::SevenZip, _) => "7z",
+        _ => bail!("compression is not valid for the selected archive format"),
+    };
+    let stem = if timestamp_name {
+        let now = chrono::Local::now();
+        format!(
+            "{name}-{}-{}-{}-sanitized",
+            now.format("%Y-%b-%d"),
+            now.format("%H-%M"),
+            head
+        )
+    } else {
+        format!("{name}-{head}-sanitized")
     };
     Ok(root
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join(format!("{name}-{head}-sanitized.{suffix}")))
+        .join(format!("{stem}.{suffix}")))
 }
 #[derive(Serialize)]
 struct Manifest {
@@ -105,6 +189,9 @@ struct Exclusion {
 
 pub fn run(config: Config) -> Result<Summary> {
     let root = fs::canonicalize(&config.repository).context("repository path does not exist")?;
+    if config.password.is_some() && config.format != ArchiveFormat::Zip {
+        bail!("password protection is supported only for ZIP AES output; TAR compression has no encryption");
+    }
     if !root.join(".git").exists() {
         bail!("not a Git working tree: {}", root.display());
     }
@@ -139,6 +226,15 @@ pub fn run(config: Config) -> Result<Summary> {
         };
         if path == output {
             exclusions.push(exclusion(display, "output archive"));
+            continue;
+        }
+        if config.password_file.as_ref().is_some_and(|p| {
+            path == *p
+                || fs::canonicalize(p)
+                    .map(|password| password == path)
+                    .unwrap_or(false)
+        }) {
+            exclusions.push(exclusion(display, "password file"));
             continue;
         }
         if let Some(reason) = default_exclusion(&relative) {
@@ -228,8 +324,18 @@ pub fn run(config: Config) -> Result<Summary> {
         exclusions,
         redactions,
     };
+    let history = git_history(&root, config.redact)?;
     if !config.dry_run {
-        write_archive(&output, config.format, &files, &manifest, config.report)?;
+        write_archive(
+            &output,
+            config.format,
+            config.compression,
+            &files,
+            &manifest,
+            &history,
+            config.password.as_deref(),
+            config.report,
+        )?;
     }
     Ok(Summary {
         included: files.len(),
@@ -238,6 +344,33 @@ pub fn run(config: Config) -> Result<Summary> {
         dry_run: config.dry_run,
         quiet: config.quiet,
     })
+}
+
+fn git_history(root: &Path, redact: bool) -> Result<String> {
+    let out = Command::new("git")
+        .current_dir(root)
+        .args(["log", "--format=%h%x09%s", "--reverse"])
+        .output()
+        .context("reading git history")?;
+    if !out.status.success() {
+        bail!("git history failed (repository may be malformed or shallow)");
+    }
+    let mut result = String::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let Some((id, subject)) = line.split_once('\t') else {
+            continue;
+        };
+        let subject = if redact {
+            crate::security::redact_text(subject).text
+        } else {
+            subject.to_owned()
+        };
+        result.push_str(id);
+        result.push(' ');
+        result.push_str(subject.trim_end());
+        result.push('\n');
+    }
+    Ok(result)
 }
 
 fn absolute(path: &Path) -> Result<PathBuf> {
@@ -317,33 +450,71 @@ fn append(builder: &mut Builder<Box<dyn Write>>, path: &str, content: &[u8]) -> 
     builder.append_data(&mut header, path, content)?;
     Ok(())
 }
+#[allow(clippy::too_many_arguments)]
 fn write_archive(
     output: &Path,
     format: ArchiveFormat,
+    compression: Compression,
     files: &[(String, Vec<u8>, ManifestFile)],
     manifest: &Manifest,
+    history: &str,
+    password: Option<&str>,
     report: ReportFormat,
 ) -> Result<()> {
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
-    let temporary = output.with_extension(format!("partial-{}", std::process::id()));
+    if format == ArchiveFormat::Zip {
+        return write_zip(
+            output,
+            compression,
+            files,
+            manifest,
+            history,
+            report,
+            password,
+        );
+    }
+    if format == ArchiveFormat::SevenZip {
+        return write_seven_zip(output, files, manifest, history, report);
+    }
+    if !matches!(
+        compression,
+        Compression::Gzip | Compression::Zstd | Compression::None
+    ) {
+        return write_external_tar(
+            output,
+            compression,
+            files,
+            manifest,
+            history,
+            password,
+            report,
+        );
+    }
+    let temporary = temporary_path(output);
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&temporary)
         .with_context(|| format!("creating {}", temporary.display()))?;
-    let writer: Box<dyn Write> = match format {
-        ArchiveFormat::TarGz => Box::new(flate2::write::GzEncoder::new(
+    let writer: Box<dyn Write> = match (format, compression) {
+        (ArchiveFormat::Tar, Compression::None) => Box::new(file),
+        (ArchiveFormat::Tar, Compression::Gzip) => Box::new(flate2::write::GzEncoder::new(
             file,
             flate2::Compression::default(),
         )),
-        ArchiveFormat::TarZst => {
+        (ArchiveFormat::Tar, Compression::Zstd) => {
             Box::new(zstd::stream::write::Encoder::new(file, 3)?.auto_finish())
         }
+        (ArchiveFormat::Zip, _) | (ArchiveFormat::SevenZip, _) => {
+            unreachable!("non-TAR format handled above")
+        }
+        (ArchiveFormat::Tar, _) => unreachable!("external codec handled above"),
     };
     let result = (|| -> Result<()> {
         let mut tar = Builder::new(writer);
+        append(&mut tar, ".git/COMMIT-HISTORY.txt", history.as_bytes())?;
         let mut sums = BTreeMap::new();
         for (name, data, entry) in files {
             append(&mut tar, name, data)?;
@@ -397,6 +568,191 @@ fn write_archive(
     Ok(())
 }
 
+fn write_seven_zip(
+    output: &Path,
+    files: &[(String, Vec<u8>, ManifestFile)],
+    manifest: &Manifest,
+    history: &str,
+    report: ReportFormat,
+) -> Result<()> {
+    let staging = output.with_extension(format!("staging-{}", std::process::id()));
+    fs::create_dir(&staging)
+        .with_context(|| format!("creating staging directory {}", staging.display()))?;
+    let result = (|| -> Result<()> {
+        let add = |name: &str, data: &[u8]| -> Result<()> {
+            let path = staging.join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(path, data)?;
+            Ok(())
+        };
+        add(".git/COMMIT-HISTORY.txt", history.as_bytes())?;
+        for (name, data, _) in files {
+            add(name, data)?;
+        }
+        add("manifest.json", &serde_json::to_vec_pretty(manifest)?)?;
+        if report != ReportFormat::None {
+            add(
+                if report == ReportFormat::Json {
+                    "SANITIZATION-REPORT.json"
+                } else {
+                    "SANITIZATION-REPORT.md"
+                },
+                &if report == ReportFormat::Json {
+                    serde_json::to_vec_pretty(manifest)?
+                } else {
+                    format!("# Sanitization Report\n\n- Included files: {}\n- Excluded files: {}\n- Redactions: {}\n", manifest.files.len(), manifest.exclusions.len(), manifest.redactions).into_bytes()
+                },
+            )?;
+        }
+        let temporary = temporary_path(output);
+        let status = Command::new("7z")
+            .args(["a", "-t7z", "-mx=5", "-mtc=off", "-mtm=off", "-mta=off"])
+            .arg(&temporary)
+            .arg(".")
+            .current_dir(&staging)
+            .output()
+            .context("running 7z")?;
+        if !status.status.success() {
+            bail!("7z failed with status {}", status.status);
+        }
+        fs::rename(temporary, output).context("installing 7z output")?;
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&staging);
+    result
+}
+
+fn write_external_tar(
+    output: &Path,
+    compression: Compression,
+    files: &[(String, Vec<u8>, ManifestFile)],
+    manifest: &Manifest,
+    history: &str,
+    password: Option<&str>,
+    report: ReportFormat,
+) -> Result<()> {
+    if password.is_some() {
+        bail!("password protection is unavailable for external compression tools");
+    }
+    let tar_path = temporary_path(output).with_extension("tar");
+    write_archive(
+        &tar_path,
+        ArchiveFormat::Tar,
+        Compression::None,
+        files,
+        manifest,
+        history,
+        None,
+        report,
+    )?;
+    let temporary = temporary_path(output);
+    let (tool, args): (&str, &[&str]) = match compression {
+        Compression::Lz4 => ("lz4", &["-f"]),
+        Compression::Lzip => ("lzip", &["-c"]),
+        Compression::Lzma => ("lzma", &["-c"]),
+        Compression::Lzo => ("lzop", &["-c"]),
+        Compression::Lrzip => ("lrzip", &["-o"]),
+        Compression::Xz => ("xz", &["-c"]),
+        _ => unreachable!("external compressor requested only for external codec"),
+    };
+    if !command_available(tool) {
+        bail!("required external compressor '{tool}' was not found in PATH");
+    }
+    let status = if tool == "lrzip" {
+        Command::new(tool)
+            .args(["-q", "-o"])
+            .arg(&temporary)
+            .arg(&tar_path)
+            .status()
+            .with_context(|| format!("running {tool}"))?
+    } else {
+        let input = File::open(&tar_path)?;
+        let output_file = File::create(&temporary)?;
+        Command::new(tool)
+            .args(args)
+            .stdin(input)
+            .stdout(output_file)
+            .status()
+            .with_context(|| format!("running {tool}"))?
+    };
+    let _ = fs::remove_file(&tar_path);
+    if !status.success() {
+        let _ = fs::remove_file(&temporary);
+        bail!("{tool} failed with status {status}");
+    }
+    fs::rename(temporary, output).context("installing compressed TAR output")?;
+    Ok(())
+}
+
+fn write_zip(
+    output: &Path,
+    compression: Compression,
+    files: &[(String, Vec<u8>, ManifestFile)],
+    manifest: &Manifest,
+    history: &str,
+    report: ReportFormat,
+    password: Option<&str>,
+) -> Result<()> {
+    let temporary = temporary_path(output);
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    let mut zip = zip::ZipWriter::new(file);
+    let method = match compression {
+        Compression::Gzip => zip::CompressionMethod::Deflated,
+        Compression::Zstd => zip::CompressionMethod::Zstd,
+        _ => bail!("ZIP supports only gzip (Deflate) or zstd compression"),
+    };
+    let mut options = zip::write::SimpleFileOptions::default()
+        .compression_method(method)
+        .last_modified_time(zip::DateTime::default());
+    if let Some(password) = password {
+        options = options.with_aes_encryption(zip::AesMode::Aes256, password);
+    }
+    let result = (|| -> Result<()> {
+        let mut add = |name: &str, data: &[u8]| -> Result<()> {
+            zip.start_file(name, options)
+                .context("starting ZIP member")?;
+            std::io::Write::write_all(&mut zip, data).context("writing ZIP member")?;
+            Ok(())
+        };
+        add(".git/COMMIT-HISTORY.txt", history.as_bytes())?;
+        for (name, data, _) in files {
+            add(name, data)?;
+        }
+        add("manifest.json", &serde_json::to_vec_pretty(manifest)?)?;
+        if report != ReportFormat::None {
+            add(
+                if report == ReportFormat::Json {
+                    "SANITIZATION-REPORT.json"
+                } else {
+                    "SANITIZATION-REPORT.md"
+                },
+                &serde_json::to_vec_pretty(manifest)?,
+            )?;
+        }
+        zip.finish().context("finishing ZIP")?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+        return result;
+    }
+    fs::rename(temporary, output).context("installing ZIP output")?;
+    Ok(())
+}
+
+fn temporary_path(output: &Path) -> PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    output.with_extension(format!("partial-{}-{nonce}", std::process::id()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -416,6 +772,19 @@ mod tests {
         .unwrap();
         Command::new("git")
             .args(["add", "."])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args([
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "initial TOKEN=history-secret",
+            ])
             .current_dir(d.path())
             .status()
             .unwrap();
@@ -440,11 +809,17 @@ mod tests {
     #[test]
     fn default_output_name_is_deterministic_and_safe() {
         let d = repo();
-        let path = default_output_path(d.path(), ArchiveFormat::TarZst).unwrap();
+        let path =
+            default_output_path(d.path(), ArchiveFormat::Tar, Compression::Zstd, true).unwrap();
         let name = path.file_name().unwrap().to_string_lossy();
         assert!(name.ends_with("-sanitized.tar.zst"));
-        assert!(name.contains("-unknown-sanitized-") || name.contains("-sanitized."));
+        assert!(name.contains("-sanitized.tar.zst"));
         assert!(!name.contains('/'));
+        let stable =
+            default_output_path(d.path(), ArchiveFormat::Tar, Compression::Zstd, false).unwrap();
+        let stable_name = stable.file_name().unwrap().to_string_lossy();
+        assert!(stable_name.ends_with("-sanitized.tar.zst"));
+        assert!(!stable_name.contains("-202"));
     }
     #[test]
     fn archive_has_no_secret() {
@@ -453,7 +828,8 @@ mod tests {
         let r = run(Config {
             repository: d.path().into(),
             output: o.clone(),
-            format: ArchiveFormat::TarZst,
+            format: ArchiveFormat::Tar,
+            compression: Compression::Zstd,
             report: ReportFormat::Markdown,
             include_untracked: false,
             max_file_size: 100000,
@@ -462,6 +838,8 @@ mod tests {
             redact: true,
             fail_on_secret: false,
             dry_run: false,
+            password: None,
+            password_file: None,
             verbose: false,
             quiet: true,
         })
@@ -470,11 +848,46 @@ mod tests {
         let bytes = fs::read(o).unwrap();
         let mut ar = tar::Archive::new(zstd::stream::read::Decoder::new(&bytes[..]).unwrap());
         let mut all = String::new();
+        let mut names = Vec::new();
         for e in ar.entries().unwrap() {
             let mut e = e.unwrap();
+            names.push(e.path().unwrap().to_string_lossy().into_owned());
             e.read_to_string(&mut all).ok();
         }
         assert!(!all.contains("not-a-real-secret"));
         assert!(all.contains("secretKeyRef"));
+        assert!(names.iter().any(|name| name == ".git/COMMIT-HISTORY.txt"));
+    }
+
+    #[test]
+    fn history_is_reverse_chronological_and_subject_only() {
+        let d = repo();
+        let history = git_history(d.path(), true).unwrap();
+        assert!(history.lines().next().unwrap().split_whitespace().count() >= 2);
+        assert!(!history.contains("Author"));
+    }
+
+    #[test]
+    fn history_uses_subjects_and_redacts_sensitive_values() {
+        let d = repo();
+        Command::new("git")
+            .args([
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "TOKEN=historical-secret\nsecond line",
+            ])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        let history = git_history(d.path(), true).unwrap();
+        assert!(history.contains("[REDACTED]"));
+        assert!(!history.contains("historical-secret"));
+        assert!(!history.contains("second line"));
+        assert_eq!(history.lines().count(), 2);
     }
 }
