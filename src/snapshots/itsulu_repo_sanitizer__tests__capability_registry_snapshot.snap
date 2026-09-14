@@ -1,0 +1,76 @@
+---
+source: src/lib.rs
+expression: CAPABILITIES
+---
+[
+    Capability {
+        id: "repository",
+        label: "Repository selection",
+        surface: CliGui,
+    },
+    Capability {
+        id: "output",
+        label: "Output location and filename",
+        surface: CliGui,
+    },
+    Capability {
+        id: "archive",
+        label: "Archive format",
+        surface: CliGui,
+    },
+    Capability {
+        id: "compression",
+        label: "Compression",
+        surface: CliGui,
+    },
+    Capability {
+        id: "tracked",
+        label: "Tracked and untracked files",
+        surface: CliGui,
+    },
+    Capability {
+        id: "filters",
+        label: "Include and exclude rules",
+        surface: CliGui,
+    },
+    Capability {
+        id: "limits",
+        label: "Maximum file size",
+        surface: CliGui,
+    },
+    Capability {
+        id: "redaction",
+        label: "Redaction and fail-on-secret",
+        surface: CliGui,
+    },
+    Capability {
+        id: "reports",
+        label: "Reports",
+        surface: CliGui,
+    },
+    Capability {
+        id: "encryption",
+        label: "ZIP password protection",
+        surface: CliGui,
+    },
+    Capability {
+        id: "dry-run",
+        label: "Dry run",
+        surface: CliGui,
+    },
+    Capability {
+        id: "timestamp-name",
+        label: "Timestamped output naming",
+        surface: CliGui,
+    },
+    Capability {
+        id: "diagnostics",
+        label: "Verbosity and quiet diagnostics",
+        surface: CliGui,
+    },
+    Capability {
+        id: "list-formats",
+        label: "Capability matrix listing",
+        surface: CliOnly,
+    },
+]

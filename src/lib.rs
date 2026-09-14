@@ -100,4 +100,9 @@ mod tests {
             CapabilitySurface::CliGui | CapabilitySurface::CliOnly | CapabilitySurface::Internal
         )));
     }
+
+    #[test]
+    fn capability_registry_snapshot() {
+        insta::assert_debug_snapshot!(CAPABILITIES);
+    }
 }
