@@ -1,6 +1,6 @@
 [package]
 name = "itsulu-repo-sanitizer"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 description = "Create deterministic, sanitized AI review bundles from Git repositories"
 license = "Apache-2.0"
@@ -10,6 +10,10 @@ readme = "README.md"
 [[bin]]
 name = "itsulu-repo-sanitizer"
 path = "src/main.rs"
+
+[[bin]]
+name = "rustrepo-sanitizer-gui"
+path = "src/bin/gui.rs"
 
 [dependencies]
 anyhow = "1.0"
@@ -24,10 +28,21 @@ sha2 = "0.10"
 tar = "0.4"
 zstd = "0.13"
 zip = { version = "2.4", default-features = false, features = ["aes-crypto", "deflate", "zstd"] }
+slint = { version = "1.17.1", optional = true }
+
+[features]
+default = []
+gui = ["dep:slint"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.14"
+insta = "1.48"
+xa11y = "0.14"
+enigo = "0.6"
+
+[build-dependencies]
+slint-build = "1.17.1"
 
 [package.metadata.deb]
 maintainer = "ITSulu, LLC"

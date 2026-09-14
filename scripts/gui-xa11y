@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+cargo build --features gui --bin rustrepo-sanitizer-gui
+cargo test --test gui_xa11y --no-run
+target/debug/rustrepo-sanitizer-gui >/tmp/rustrepo-sanitizer-gui.log 2>&1 &
+gui_pid=$!
+trap 'kill "$gui_pid" 2>/dev/null || true; wait "$gui_pid" 2>/dev/null || true' EXIT
+sleep 2
+test_bin=$(find target/debug/deps -maxdepth 1 -type f -name 'gui_xa11y-*' -executable | head -n 1)
+test -n "$test_bin"
+"$test_bin" --ignored --nocapture

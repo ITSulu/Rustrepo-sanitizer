@@ -1,0 +1,50 @@
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "Rustrepo Sanitizer 0.4.0";
+    width: 760px;
+    height: 620px;
+    in property <string> status: "Ready to sanitize a repository";
+    in-out property <bool> redact-secrets: true;
+    in-out property <bool> fail-on-secret: false;
+    in-out property <string> max-file-size: "10485760";
+    in-out property <string> include-glob: "";
+    in-out property <string> exclude-glob: "";
+    in-out property <string> zip-password: "";
+    callback sanitize(string, string, bool, bool, int, int, bool, bool, string, string, string, string);
+    callback cancel();
+    VerticalBox { padding: 24px; spacing: 14px;
+        Text { text: "Rustrepo Sanitizer"; font-size: 28px; }
+        Text { text: "Create a safe, deterministic AI review bundle."; color: #667085; }
+        Text { text: "Repository"; accessible-label: "Repository label"; }
+        repository := LineEdit { text: "."; placeholder-text: "Path to a Git repository"; accessible-id: "repository-path"; accessible-label: "Repository path"; }
+        Text { text: "Output file"; }
+        output := LineEdit { placeholder-text: "Automatic filename"; accessible-id: "output-path"; accessible-label: "Output file path"; }
+        untracked := CheckBox { text: "Include untracked files"; accessible-id: "include-untracked"; accessible-label: "Include untracked files"; }
+        dry-run := CheckBox { text: "Dry run (preview only)"; accessible-id: "dry-run"; accessible-label: "Dry run"; }
+        HorizontalLayout { spacing: 12px;
+            Text { text: "Format"; }
+            format := ComboBox { model: ["tar", "zip", "7z"]; accessible-id: "archive-format"; accessible-label: "Archive format"; }
+            Text { text: "Compression"; }
+            compression := ComboBox { model: ["zstd", "gzip", "none"]; accessible-id: "compression"; accessible-label: "Compression"; }
+        }
+        advanced := CheckBox { text: "Advanced options"; accessible-id: "advanced-options"; accessible-label: "Advanced options"; }
+        if advanced.checked: ScrollView { height: 210px; VerticalBox { spacing: 8px;
+            CheckBox { text: "Redact detected secrets"; checked <=> root.redact-secrets; accessible-label: "Redact secrets"; }
+            CheckBox { text: "Fail when secrets are detected"; checked <=> root.fail-on-secret; accessible-label: "Fail on secret"; }
+            Text { text: "Maximum file size (bytes)"; }
+            LineEdit { text <=> root.max-file-size; accessible-label: "Maximum file size"; }
+            Text { text: "Include glob (optional)"; }
+            LineEdit { text <=> root.include-glob; accessible-label: "Include glob"; }
+            Text { text: "Exclude glob (optional)"; }
+            LineEdit { text <=> root.exclude-glob; accessible-label: "Exclude glob"; }
+            Text { text: "ZIP password (never persisted)"; }
+            LineEdit { text <=> root.zip-password; input-type: InputType.password; accessible-label: "ZIP password"; }
+        }}
+        Text { text: root.status; accessible-label: "Sanitization status"; }
+        HorizontalLayout { alignment: end; spacing: 10px;
+            Button { text: "Cancel"; enabled: false; accessible-label: "Cancel sanitization"; clicked => { root.cancel(); } }
+            Button { text: "Sanitize"; accessible-id: "sanitize"; accessible-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, output.text, untracked.checked, dry-run.checked, format.current-index, compression.current-index, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
+        }
+    }
+}

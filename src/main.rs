@@ -1,10 +1,9 @@
-mod sanitizer;
-mod security;
-
 use std::{io::Read, path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use sanitizer::{default_output_path, run, ArchiveFormat, Compression, Config, ReportFormat};
+use itsulu_repo_sanitizer::sanitizer::{
+    default_output_path, run, ArchiveFormat, Compression, Config, ReportFormat,
+};
 
 #[derive(Parser)]
 #[command(
@@ -73,7 +72,7 @@ enum CliReportFormat {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     if matches!(cli.command, Command::ListFormats) {
-        sanitizer::print_formats();
+        itsulu_repo_sanitizer::sanitizer::print_formats();
         return ExitCode::SUCCESS;
     }
     let Command::Sanitize(args) = cli.command else {

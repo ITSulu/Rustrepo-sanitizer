@@ -108,6 +108,22 @@ pub struct Summary {
     pub quiet: bool,
 }
 
+/// Validate selected capabilities before reading repository contents.
+pub fn validate_config(config: &Config) -> Result<()> {
+    if config.format == ArchiveFormat::Zip
+        && !matches!(config.compression, Compression::Gzip | Compression::Zstd)
+    {
+        bail!("compression is not valid for the selected archive format")
+    }
+    if config.password.is_some() && config.format != ArchiveFormat::Zip {
+        bail!("password protection is supported only for ZIP AES output")
+    }
+    if config.password.as_deref() == Some("") {
+        bail!("password must not be empty")
+    }
+    Ok(())
+}
+
 /// Computes the deterministic output name used when `--output` is omitted.
 pub fn default_output_path(
     repository: &Path,
@@ -188,6 +204,7 @@ struct Exclusion {
 }
 
 pub fn run(config: Config) -> Result<Summary> {
+    validate_config(&config)?;
     let root = fs::canonicalize(&config.repository).context("repository path does not exist")?;
     if config.password.is_some() && config.format != ArchiveFormat::Zip {
         bail!("password protection is supported only for ZIP AES output; TAR compression has no encryption");
@@ -1001,6 +1018,29 @@ mod tests {
     fn git_config(path: &Path) {
         git(path, &["config", "user.name", "Test"]);
         git(path, &["config", "user.email", "test@example.invalid"]);
+    }
+
+    #[test]
+    fn rejects_invalid_combinations_before_execution() {
+        let config = Config {
+            repository: PathBuf::from("."),
+            output: PathBuf::from("out.zip"),
+            format: ArchiveFormat::Zip,
+            compression: Compression::None,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 1,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: true,
+            password: None,
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        };
+        assert!(validate_config(&config).is_err());
     }
 
     fn commit(path: &Path, message: &str) {
