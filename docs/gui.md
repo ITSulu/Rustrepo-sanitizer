@@ -10,7 +10,7 @@ GUI controls use accessible labels as stable semantic automation identifiers. `x
 
 | Surface | Semantic coverage |
 |---|---|
-| Repository/output fields | discover, focus, type text |
+| Repository/output fields | discover and focus semantically; text-entry compatibility is tracked below |
 | Format/compression | discover and inspect values |
 | Advanced options | expand and inspect redaction, fail-on-secret, limits, filters, password |
 | Sanitize/Cancel | activate and observe status/result |
@@ -18,8 +18,8 @@ GUI controls use accessible labels as stable semantic automation identifiers. `x
 
 The ignored native test is intentionally black-box and must run in a session with D-Bus and AT-SPI enabled; it is not replaced by coordinate automation.
 
-Run the reproducible spike with `./scripts/gui-xa11y`; its current non-zero result is the documented AT-SPI compatibility failure.
+Run the reproducible spike with `./scripts/gui-test`; it bootstraps the dedicated AT-SPI bus and restores the original accessibility state.
 
 ### xa11y compatibility spike
 
-On the development workstation, `at-spi2-registryd` and `org.a11y.Bus` are present, and the native Slint process remains alive on `DISPLAY=:0`/Wayland. The focused command `cargo test --test gui_xa11y -- --ignored --nocapture` currently reports `SelectorNotMatched` for `application[name="rustrepo-sanitizer-gui"]`; xa11y lists desktop applications but not the Slint process. This is retained as a failing compatibility gate pending diagnosis of the local Slint/AT-SPI exposure, with no coordinate-based fallback.
+The harness distinguishes the normal session bus from the dedicated accessibility bus by calling `org.a11y.Bus.GetAddress`, then verifies `org.a11y.atspi.Registry` on the returned address. The native Slint process is discoverable and semantic controls can be located and activated. The current Slint/AccessKit stack does not expose AT-SPI `EditableText` actions for `LineEdit`; xa11y therefore reports unsupported `InsertText`/`SetTextContents` for text entry. This is documented compatibility evidence, not hidden by coordinate automation.

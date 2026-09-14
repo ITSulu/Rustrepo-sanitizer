@@ -5,6 +5,9 @@ export component MainWindow inherits Window {
     width: 760px;
     height: 620px;
     in property <string> status: "Ready to sanitize a repository";
+    in-out property <bool> running: false;
+    in-out property <string> repository-path: ".";
+    in-out property <string> result-path: "";
     in-out property <bool> redact-secrets: true;
     in-out property <bool> fail-on-secret: false;
     in-out property <string> max-file-size: "10485760";
@@ -12,12 +15,17 @@ export component MainWindow inherits Window {
     in-out property <string> exclude-glob: "";
     in-out property <string> zip-password: "";
     callback sanitize(string, string, bool, bool, int, int, int, bool, bool, bool, string, string, string, string);
+    callback browse();
     callback cancel();
+    callback open-result();
     VerticalBox { padding: 24px; spacing: 14px;
         Text { text: "Rustrepo Sanitizer"; font-size: 28px; }
         Text { text: "Create a safe, deterministic AI review bundle."; color: #667085; }
         Text { text: "Repository"; accessible-label: "Repository label"; }
-        repository := LineEdit { text: "."; placeholder-text: "Path to a Git repository"; accessible-id: "repository-path"; accessible-label: "Repository path"; }
+        HorizontalLayout { spacing: 8px;
+            repository := LineEdit { text <=> root.repository-path; placeholder-text: "Path to a Git repository"; accessible-id: "repository-path"; accessible-label: "Repository path"; }
+            Button { text: "Browse…"; accessible-id: "browse-repository"; accessible-label: "Browse for repository"; clicked => { root.browse(); } }
+        }
         Text { text: "Output file"; }
         output := LineEdit { placeholder-text: "Automatic filename"; accessible-id: "output-path"; accessible-label: "Output file path"; }
         untracked := CheckBox { text: "Include untracked files"; accessible-id: "include-untracked"; accessible-label: "Include untracked files"; }
@@ -44,10 +52,11 @@ export component MainWindow inherits Window {
             Text { text: "ZIP password (never persisted)"; }
             LineEdit { text <=> root.zip-password; input-type: InputType.password; accessible-label: "ZIP password"; }
         }}
-        Text { text: root.status; accessible-label: "Sanitization status"; }
+        Text { text: root.status; accessible-label: root.status; }
+        Button { text: "Open output folder"; enabled: root.result-path != ""; accessible-id: "open-result"; accessible-label: "Open output folder"; clicked => { root.open-result(); } }
         HorizontalLayout { alignment: end; spacing: 10px;
-            Button { text: "Cancel"; enabled: false; accessible-label: "Cancel sanitization"; clicked => { root.cancel(); } }
-            Button { text: "Sanitize"; accessible-id: "sanitize"; accessible-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, output.text, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
+            Button { text: "Cancel"; enabled: root.running; accessible-label: "Cancel sanitization"; clicked => { root.cancel(); } }
+            Button { text: "Sanitize"; enabled: !root.running; accessible-id: "sanitize"; accessible-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, output.text, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
         }
     }
 }

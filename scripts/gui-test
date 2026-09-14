@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [[ -z "${RRS_GUI_DBUS:-}" ]]; then
+    exec dbus-run-session -- env RRS_GUI_DBUS=1 "$0"
+fi
+command -v busctl >/dev/null
+command -v timeout >/dev/null
+command -v gdbus >/dev/null
+cargo test --test gui_xa11y --no-run
+cargo build --features gui --bin rustrepo-sanitizer-gui
+test_bin=$(find target/debug/deps -maxdepth 1 -type f -name "gui_xa11y-*" -executable | head -n 1)
+test -n "$test_bin"
+status_path=/org/a11y/bus
+status_iface=org.a11y.Status
+status_prop=IsEnabled
+original=true
+if busctl --user get-property org.a11y.Bus "$status_path" "$status_iface" "$status_prop" | grep -q false; then original=false; fi
+busctl --user set-property org.a11y.Bus "$status_path" "$status_iface" "$status_prop" b true
+accessibility_bus=$(gdbus call --session --dest org.a11y.Bus --object-path "$status_path" --method org.a11y.Bus.GetAddress | sed -n "s/^('\([^']*\)',)$/\1/p")
+test -n "$accessibility_bus" || { echo "AT-SPI bootstrap failed: GetAddress returned no accessibility bus" >&2; exit 1; }
+echo "AT-SPI accessibility bus acquired"
+export AT_SPI_BUS="$accessibility_bus"
+restore() {
+    busctl --user set-property org.a11y.Bus "$status_path" "$status_iface" "$status_prop" b "$original" >/dev/null 2>&1 || true
+    if [[ -n "${gui_pid:-}" ]]; then kill "$gui_pid" >/dev/null 2>&1 || true; wait "$gui_pid" >/dev/null 2>&1 || true; fi
+    if [[ -n "${registry_pid:-}" ]]; then kill "$registry_pid" >/dev/null 2>&1 || true; wait "$registry_pid" >/dev/null 2>&1 || true; fi
+}
+trap restore EXIT
+AT_SPI_BUS="$accessibility_bus" /usr/lib/at-spi2-registryd --dbus-name=org.a11y.atspi.Registry >/tmp/rustrepo-atspi-registry.log 2>&1 &
+registry_pid=$!
+sleep 1
+setsid target/debug/rustrepo-sanitizer-gui >/tmp/rustrepo-sanitizer-gui.log 2>&1 &
+gui_pid=$!
+sleep 2
+if ! timeout 5s bash -c 'busctl --address="$1" list | grep -q org.a11y.atspi.Registry' _ "$accessibility_bus"; then
+    echo "AT-SPI bootstrap failed: Registry is absent on the accessibility bus" >&2
+    busctl --address="$accessibility_bus" list >&2 || true
+    exit 1
+fi
+echo "AT-SPI registry verified on accessibility bus"
+timeout --signal=TERM --kill-after=5s 35s "$test_bin" --ignored --nocapture

@@ -93,6 +93,15 @@ pub const CAPABILITIES: &[Capability] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct GuiState {
+        name: &'static str,
+        status: &'static str,
+        running: bool,
+        has_result: bool,
+    }
     #[test]
     fn all_capabilities_are_gui_or_explicit() {
         assert!(CAPABILITIES.iter().all(|c| matches!(
@@ -104,5 +113,39 @@ mod tests {
     #[test]
     fn capability_registry_snapshot() {
         insta::assert_debug_snapshot!(CAPABILITIES);
+    }
+
+    #[test]
+    fn gui_state_snapshots() {
+        insta::assert_debug_snapshot!(
+            "gui-stable-states",
+            [
+                GuiState {
+                    name: "default",
+                    status: "Ready to sanitize a repository",
+                    running: false,
+                    has_result: false
+                },
+                GuiState {
+                    name: "running",
+                    status: "Scanning… 3 files",
+                    running: true,
+                    has_result: false
+                },
+                GuiState {
+                    name: "success",
+                    status: "Complete: 3 files, 1 redactions",
+                    running: false,
+                    has_result: true
+                },
+                GuiState {
+                    name: "validation-error",
+                    status:
+                        "Invalid options: compression is not valid for the selected archive format",
+                    running: false,
+                    has_result: false
+                },
+            ]
+        );
     }
 }

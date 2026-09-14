@@ -29,10 +29,12 @@ tar = "0.4"
 zstd = "0.13"
 zip = { version = "2.4", default-features = false, features = ["aes-crypto", "deflate", "zstd"] }
 slint = { version = "1.17.1", optional = true }
+rfd = { version = "0.15", optional = true }
+webbrowser = { version = "1.0", optional = true }
 
 [features]
 default = []
-gui = ["dep:slint"]
+gui = ["dep:slint", "dep:rfd", "dep:webbrowser"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

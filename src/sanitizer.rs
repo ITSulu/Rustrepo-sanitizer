@@ -100,12 +100,32 @@ pub struct Config {
     pub verbose: bool,
     pub quiet: bool,
 }
+#[derive(Debug)]
 pub struct Summary {
     pub included: usize,
     pub excluded: usize,
     pub redactions: usize,
     pub dry_run: bool,
     pub quiet: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProgressEvent {
+    Scanning { path: String, examined: usize },
+    Writing { included: usize },
+    Finished,
+}
+
+pub fn run(config: Config) -> Result<Summary> {
+    run_with_progress(config, |_| {}, || false)
+}
+
+pub fn run_with_progress<F, C>(config: Config, mut progress: F, cancelled: C) -> Result<Summary>
+where
+    F: FnMut(ProgressEvent),
+    C: Fn() -> bool,
+{
+    run_inner(config, &mut progress, &cancelled)
 }
 
 /// Validate selected capabilities before reading repository contents.
@@ -203,7 +223,11 @@ struct Exclusion {
     reason: String,
 }
 
-pub fn run(config: Config) -> Result<Summary> {
+fn run_inner<F, C>(config: Config, progress: &mut F, cancelled: &C) -> Result<Summary>
+where
+    F: FnMut(ProgressEvent),
+    C: Fn() -> bool,
+{
     validate_config(&config)?;
     let root = fs::canonicalize(&config.repository).context("repository path does not exist")?;
     if config.password.is_some() && config.format != ArchiveFormat::Zip {
@@ -229,7 +253,17 @@ pub fn run(config: Config) -> Result<Summary> {
     let mut exclusions = Vec::new();
     let mut files = Vec::new();
     let mut redactions = 0usize;
-    for relative in git_files(&root, config.include_untracked)? {
+    for (examined, relative) in git_files(&root, config.include_untracked)?
+        .into_iter()
+        .enumerate()
+    {
+        if cancelled() {
+            bail!("sanitization cancelled")
+        }
+        progress(ProgressEvent::Scanning {
+            path: relative.display().to_string(),
+            examined: examined + 1,
+        });
         let path = root.join(&relative);
         let display = match safe_archive_path(&relative) {
             Ok(path) => path,
@@ -316,6 +350,12 @@ pub fn run(config: Config) -> Result<Summary> {
         ));
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
+    progress(ProgressEvent::Writing {
+        included: files.len(),
+    });
+    if cancelled() {
+        bail!("sanitization cancelled")
+    }
     for (_, content, entry) in &mut files {
         entry.output_bytes = content.len() as u64;
     }
@@ -354,6 +394,7 @@ pub fn run(config: Config) -> Result<Summary> {
             config.report,
         )?;
     }
+    progress(ProgressEvent::Finished);
     Ok(Summary {
         included: files.len(),
         excluded: manifest.exclusions.len(),
@@ -1041,6 +1082,40 @@ mod tests {
             quiet: true,
         };
         assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn cancellation_stops_before_scanning() {
+        let d = tempdir().unwrap();
+        git(d.path(), &["init", "-q"]);
+        git_config(d.path());
+        fs::write(d.path().join("input.txt"), "safe").unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-q", "-m", "initial"]);
+        let config = Config {
+            repository: d.path().to_owned(),
+            output: d.path().join("output.tar.zst"),
+            format: ArchiveFormat::Tar,
+            compression: Compression::Zstd,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 1024,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: true,
+            password: None,
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        };
+        let result = run_with_progress(
+            config,
+            |_| panic!("cancelled run emitted progress"),
+            || true,
+        );
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
     }
 
     fn commit(path: &Path, message: &str) {
