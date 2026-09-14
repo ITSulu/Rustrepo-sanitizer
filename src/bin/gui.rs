@@ -16,6 +16,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
               dry_run,
               format_index,
               compression_index,
+              report_index,
+              timestamp,
               redact,
               fail_secret,
               max_size,
@@ -33,8 +35,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 2 => Compression::None,
                 _ => Compression::Zstd,
             };
+            let report = match report_index {
+                1 => ReportFormat::Json,
+                2 => ReportFormat::None,
+                _ => ReportFormat::Markdown,
+            };
             let output = if output.is_empty() {
-                default_output_path(&repo, format, compression, true)
+                default_output_path(&repo, format, compression, timestamp)
                     .unwrap_or_else(|_| PathBuf::from("sanitized.tar.zst"))
             } else {
                 PathBuf::from(output.to_string())
@@ -44,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 output,
                 format,
                 compression,
-                report: ReportFormat::Markdown,
+                report,
                 include_untracked: untracked,
                 max_file_size: max_size.parse().unwrap_or(10 * 1024 * 1024),
                 excludes: if exclude.is_empty() {

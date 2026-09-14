@@ -11,7 +11,7 @@ export component MainWindow inherits Window {
     in-out property <string> include-glob: "";
     in-out property <string> exclude-glob: "";
     in-out property <string> zip-password: "";
-    callback sanitize(string, string, bool, bool, int, int, bool, bool, string, string, string, string);
+    callback sanitize(string, string, bool, bool, int, int, int, bool, bool, bool, string, string, string, string);
     callback cancel();
     VerticalBox { padding: 24px; spacing: 14px;
         Text { text: "Rustrepo Sanitizer"; font-size: 28px; }
@@ -22,11 +22,14 @@ export component MainWindow inherits Window {
         output := LineEdit { placeholder-text: "Automatic filename"; accessible-id: "output-path"; accessible-label: "Output file path"; }
         untracked := CheckBox { text: "Include untracked files"; accessible-id: "include-untracked"; accessible-label: "Include untracked files"; }
         dry-run := CheckBox { text: "Dry run (preview only)"; accessible-id: "dry-run"; accessible-label: "Dry run"; }
+        timestamp := CheckBox { text: "Timestamp output filename"; checked: true; accessible-id: "timestamp-name"; accessible-label: "Timestamp output filename"; }
         HorizontalLayout { spacing: 12px;
             Text { text: "Format"; }
             format := ComboBox { model: ["tar", "zip", "7z"]; accessible-id: "archive-format"; accessible-label: "Archive format"; }
             Text { text: "Compression"; }
             compression := ComboBox { model: ["zstd", "gzip", "none"]; accessible-id: "compression"; accessible-label: "Compression"; }
+            Text { text: "Report"; }
+            report := ComboBox { model: ["Markdown", "JSON", "None"]; accessible-id: "report"; accessible-label: "Report format"; }
         }
         advanced := CheckBox { text: "Advanced options"; accessible-id: "advanced-options"; accessible-label: "Advanced options"; }
         if advanced.checked: ScrollView { height: 210px; VerticalBox { spacing: 8px;
@@ -44,7 +47,7 @@ export component MainWindow inherits Window {
         Text { text: root.status; accessible-label: "Sanitization status"; }
         HorizontalLayout { alignment: end; spacing: 10px;
             Button { text: "Cancel"; enabled: false; accessible-label: "Cancel sanitization"; clicked => { root.cancel(); } }
-            Button { text: "Sanitize"; accessible-id: "sanitize"; accessible-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, output.text, untracked.checked, dry-run.checked, format.current-index, compression.current-index, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
+            Button { text: "Sanitize"; accessible-id: "sanitize"; accessible-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, output.text, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
         }
     }
 }
