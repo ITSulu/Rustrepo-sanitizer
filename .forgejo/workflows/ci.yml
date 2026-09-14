@@ -16,6 +16,7 @@ jobs:
       - uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - run: apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
