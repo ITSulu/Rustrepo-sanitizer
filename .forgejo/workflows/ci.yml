@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
-      - run: apt-get update && apt-get install -y --no-install-recommends at-spi2-core dbus-x11 libxkbcommon-dev xdotool
+      - run: DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends at-spi2-core dbus-x11 libxkbcommon-dev xdotool
       - run: ./scripts/gui-test
 
   security-release:
