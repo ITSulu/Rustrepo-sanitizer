@@ -10,6 +10,8 @@ component HelpfulCheckBox inherits CheckBox {
 }
 component HelpfulComboBox inherits ComboBox {
     in property <string> help;
+    callback selection-changed(int);
+    changed current-index => { root.selection-changed(self.current-index); }
     Tooltip { text: @markdown("\{root.help}"); }
 }
 component HelpfulLineEdit inherits LineEdit {
@@ -106,6 +108,7 @@ export component MainWindow inherits Window {
     in-out property <[string]> include-patterns: [];
     in-out property <[string]> exclude-patterns: [];
     in-out property <string> zip-password: "";
+    in property <[string]> compression-options: [];
     callback sanitize(string, string, bool, bool, int, int, int, bool, bool, bool, string, string, string, string);
     callback browse();
     callback browse-output(string, int, int, bool);
@@ -116,6 +119,7 @@ export component MainWindow inherits Window {
     callback show-about();
     callback quit-requested();
     callback cancel-shortcut();
+    callback archive-changed(int);
     callback add-include(string);
     callback remove-include(string);
     callback add-exclude(string);
@@ -153,9 +157,9 @@ export component MainWindow inherits Window {
         timestamp := HelpfulCheckBox { text: "Timestamp output filename"; help: "Add a deterministic timestamp and commit identifier to the generated filename."; checked: true; accessible-id: "timestamp-name"; accessible-label: "Timestamp output filename"; }
         HorizontalLayout { spacing: 12px;
             Text { text: "Archive"; }
-            format := HelpfulComboBox { model: ["tar", "zip", "7z", "none"]; help: "Choose the archive container used for the sanitized bundle."; accessible-id: "archive-format"; accessible-label: "Archive format"; }
+            format := HelpfulComboBox { model: ["tar", "zip", "7z", "none"]; help: "Choose the archive container used for the sanitized bundle."; accessible-id: "archive-format"; accessible-label: "Archive format"; selection-changed(index) => { root.archive-changed(index); } }
             Text { text: "Compression"; }
-            compression := HelpfulComboBox { model: format.current-index == 1 ? ["gzip", "zstd"] : format.current-index == 2 ? ["none"] : format.current-index == 3 ? ["gzip", "zstd", "LZ4", "XZ", "zlib", "Brotli", "Snappy", "bzip2"] : ["zstd", "gzip", "none", "lzip", "lzma", "lzo", "lrzip", "xz"]; help: "Choose a compressor compatible with the selected archive."; accessible-id: "compression"; accessible-label: "Compression"; }
+            compression := HelpfulComboBox { model: root.compression-options; help: "Choose a compressor compatible with the selected archive."; accessible-id: "compression"; accessible-label: "Compression"; }
             Text { text: "Report"; }
             report := HelpfulComboBox { model: ["Markdown", "JSON", "None"]; help: "Choose the optional human-readable or JSON sanitization report."; accessible-id: "report"; accessible-label: "Report format"; }
         }

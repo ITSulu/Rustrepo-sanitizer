@@ -26,9 +26,10 @@ fn settings_values_for_policy(
 #[cfg(feature = "gui")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use itsulu_repo_sanitizer::sanitizer::{
-        add_pattern, compression_for_gui_selection, default_output_path, remove_pattern,
-        run_with_progress, validate_config, ArchiveFormat, Compression, Config, PasswordPolicy,
-        ProgressEvent, ReportFormat,
+        add_pattern, compatible_compressions, compression_capability,
+        compression_for_gui_selection, default_output_path, remove_pattern, run_with_progress,
+        validate_config, ArchiveFormat, Compression, Config, PasswordPolicy, ProgressEvent,
+        ReportFormat,
     };
     use slint::{ComponentHandle, Model, ModelRc, VecModel};
     use std::path::PathBuf;
@@ -39,6 +40,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let window = MainWindow::new()?;
     window.set_app_title(format!("Rustrepo Sanitizer {}", env!("CARGO_PKG_VERSION")).into());
+    let set_compression_options = |window: &MainWindow, format_index: i32| {
+        let format = match format_index {
+            1 => ArchiveFormat::Zip,
+            2 => ArchiveFormat::SevenZip,
+            3 => ArchiveFormat::None,
+            _ => ArchiveFormat::Tar,
+        };
+        let options = compatible_compressions(format)
+            .into_iter()
+            .map(|compression| compression_capability(compression).label.into())
+            .collect::<Vec<slint::SharedString>>();
+        window.set_compression_options(ModelRc::new(VecModel::from(options)));
+    };
+    set_compression_options(&window, 0);
+    let compression_ui = window.as_weak();
+    window.on_archive_changed(move |format_index| {
+        if let Some(window) = compression_ui.upgrade() {
+            set_compression_options(&window, format_index);
+        }
+    });
     let include_ui = window.as_weak();
     window.on_add_include(move |pattern| {
         if let Some(window) = include_ui.upgrade() {
