@@ -262,7 +262,8 @@ mod tests {
     #[test]
     fn native_gui_ci_verifies_maximize_and_restore() {
         let workflow = include_str!("../.forgejo/workflows/ci.yml");
-        let harness = std::fs::read_to_string("scripts/gui-test").expect("GUI harness is available");
+        let harness =
+            std::fs::read_to_string("scripts/gui-test").expect("GUI harness is available");
         assert!(workflow.contains("x11-utils"));
         assert!(harness.contains("_NET_WM_STATE_MAXIMIZED_VERT"));
         assert!(harness.contains("_NET_WM_STATE_MAXIMIZED_HORZ"));
