@@ -24,6 +24,30 @@ fn settings_values_for_policy(
 }
 
 #[cfg(feature = "gui")]
+fn refresh_output_extension(window: &MainWindow, format_index: i32, compression_index: i32) {
+    use itsulu_repo_sanitizer::sanitizer::{
+        compression_for_gui_selection, output_extension, ArchiveFormat,
+    };
+    use std::path::PathBuf;
+    let format = match format_index {
+        1 => ArchiveFormat::Zip,
+        2 => ArchiveFormat::SevenZip,
+        3 => ArchiveFormat::None,
+        _ => ArchiveFormat::Tar,
+    };
+    if let Some(compression) = compression_for_gui_selection(format, compression_index as usize) {
+        if let Ok(extension) = output_extension(format, compression) {
+            let current = window.get_output_path();
+            if !current.is_empty() {
+                let mut path = PathBuf::from(current.to_string());
+                path.set_extension(extension);
+                window.set_output_path(path.display().to_string().into());
+            }
+        }
+    }
+}
+
+#[cfg(feature = "gui")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use itsulu_repo_sanitizer::sanitizer::{
         add_pattern, compatible_compressions, compression_capability,
@@ -58,6 +82,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.on_archive_changed(move |format_index| {
         if let Some(window) = compression_ui.upgrade() {
             set_compression_options(&window, format_index);
+            refresh_output_extension(&window, format_index, 0);
+        }
+    });
+    let output_ui = window.as_weak();
+    window.on_compression_changed(move |format_index, compression_index| {
+        if let Some(window) = output_ui.upgrade() {
+            refresh_output_extension(&window, format_index, compression_index);
         }
     });
     let include_ui = window.as_weak();
