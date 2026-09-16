@@ -305,6 +305,13 @@ fn command_available(name: &str) -> bool {
         .any(|dir| dir.join(name).is_file())
 }
 
+fn ensure_external_compressor_available(name: &str) -> Result<()> {
+    if !command_available(name) {
+        bail!("required external compressor '{name}' was not found in PATH");
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReportFormat {
     Markdown,
@@ -1048,6 +1055,16 @@ fn write_external_tar(
     if password.is_some() {
         bail!("password protection is unavailable for external compression tools");
     }
+    let (tool, args): (&str, &[&str]) = match compression {
+        Compression::Lz4 => ("lz4", &["-f"]),
+        Compression::Lzip => ("lzip", &["-c"]),
+        Compression::Lzma => ("lzma", &["-c"]),
+        Compression::Lzo => ("lzop", &["-c"]),
+        Compression::Lrzip => ("lrzip", &["-o"]),
+        Compression::Xz => ("xz", &["-c"]),
+        _ => unreachable!("external compressor requested only for external codec"),
+    };
+    ensure_external_compressor_available(tool)?;
     let tar_path = temporary_path(output).with_extension("tar");
     write_archive(
         &tar_path,
@@ -1060,18 +1077,6 @@ fn write_external_tar(
         report,
     )?;
     let temporary = temporary_path(output);
-    let (tool, args): (&str, &[&str]) = match compression {
-        Compression::Lz4 => ("lz4", &["-f"]),
-        Compression::Lzip => ("lzip", &["-c"]),
-        Compression::Lzma => ("lzma", &["-c"]),
-        Compression::Lzo => ("lzop", &["-c"]),
-        Compression::Lrzip => ("lrzip", &["-o"]),
-        Compression::Xz => ("xz", &["-c"]),
-        _ => unreachable!("external compressor requested only for external codec"),
-    };
-    if !command_available(tool) {
-        bail!("required external compressor '{tool}' was not found in PATH");
-    }
     let status = if tool == "lrzip" {
         Command::new(tool)
             .args(["-q", "-o"])
