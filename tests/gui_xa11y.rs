@@ -21,9 +21,31 @@ fn discovers_slint_controls_semantically() {
     app.locator(r##"button[name="Browse for repository"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("Browse control must be semantically discoverable");
+    app.locator(r##"text_field[name="Output file path"]"##)
+        .wait_visible(std::time::Duration::from_secs(5))
+        .expect("Output File input must be semantically discoverable");
+    app.locator(r##"button[name="Browse for output folder"]"##)
+        .wait_visible(std::time::Duration::from_secs(5))
+        .expect("Output Browse control must be semantically discoverable");
+    app.locator(r##"combo_box[name="Archive format"]"##)
+        .wait_visible(std::time::Duration::from_secs(5))
+        .expect("Archive selector must be semantically discoverable");
+    app.locator(r##"combo_box[name="Compression"]"##)
+        .wait_visible(std::time::Duration::from_secs(5))
+        .expect("Compression selector must be semantically discoverable");
+    assert!(
+        tree.contains("Help"),
+        "desktop Help menu must be represented in the accessibility tree"
+    );
     app.locator(r##"check_box[name="Advanced options"]"##)
         .press()
         .expect("Advanced options must be semantically activatable");
+    app.locator(r##"text_field[name="Custom include glob"]"##)
+        .wait_visible(std::time::Duration::from_secs(5))
+        .expect("Include Glob editor must be semantically discoverable");
+    app.locator(r##"button[name="Add"]"##)
+        .wait_visible(std::time::Duration::from_secs(5))
+        .expect("Glob Add controls must be semantically discoverable");
     app.locator(r##"check_box[name="Advanced options"]"##)
         .press()
         .expect("Advanced options must be closable semantically");

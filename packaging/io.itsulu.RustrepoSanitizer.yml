@@ -10,6 +10,9 @@ modules:
     buildsystem: simple
     build-commands:
       - install -Dm755 itsulu-repo-sanitizer /app/bin/itsulu-repo-sanitizer
+      - install -Dm644 assets/rustrepo-sanitizer.svg /app/share/icons/hicolor/scalable/apps/io.itsulu.RustrepoSanitizer.svg
     sources:
       - type: file
         path: itsulu-repo-sanitizer
+      - type: file
+        path: assets/rustrepo-sanitizer.svg

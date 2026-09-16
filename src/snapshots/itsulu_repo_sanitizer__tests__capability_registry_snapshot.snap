@@ -50,7 +50,7 @@ expression: CAPABILITIES
     },
     Capability {
         id: "encryption",
-        label: "ZIP password protection",
+        label: "Password and encryption",
         surface: CliGui,
     },
     Capability {

@@ -2,7 +2,7 @@ use std::{io::Read, path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use itsulu_repo_sanitizer::sanitizer::{
-    default_output_path, run, ArchiveFormat, Compression, Config, ReportFormat,
+    default_output_path, run, ArchiveFormat, Compression, Config, PasswordPolicy, ReportFormat,
 };
 
 #[derive(Parser)]
@@ -56,6 +56,16 @@ struct SanitizeArgs {
     password_file: Option<PathBuf>,
     #[arg(long, conflicts_with = "password_file")]
     password_stdin: bool,
+    #[arg(long = "password-min-length", default_value_t = 8)]
+    password_min_length: usize,
+    #[arg(long = "password-require-uppercase", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_uppercase: bool,
+    #[arg(long = "password-require-lowercase", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_lowercase: bool,
+    #[arg(long = "password-require-number", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_number: bool,
+    #[arg(long = "password-require-special", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_special: bool,
     #[arg(short, long)]
     verbose: bool,
     #[arg(short, long)]
@@ -124,6 +134,13 @@ fn main() -> ExitCode {
         fail_on_secret: args.fail_on_secret,
         dry_run: args.dry_run,
         password,
+        password_policy: PasswordPolicy {
+            minimum_length: args.password_min_length,
+            require_uppercase: args.password_require_uppercase,
+            require_lowercase: args.password_require_lowercase,
+            require_number: args.password_require_number,
+            require_special: args.password_require_special,
+        },
         password_file: args.password_file,
         verbose: args.verbose,
         quiet: args.quiet,

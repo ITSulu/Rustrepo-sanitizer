@@ -1,0 +1,71 @@
+---
+source: src/lib.rs
+expression: "[GuiReviewState\n{\n    name: \"default-tar\", menu_entries: &[\"File\", \"Help\", \"Settings\", \"About\"],\n    archive: \"tar\", compression_choices: &[\"zstd\", \"gzip\", \"none\"],\n    password_visible: false, include_patterns: &[], exclude_patterns: &[],\n}, GuiReviewState\n{\n    name: \"zip-password\", menu_entries:\n    &[\"File\", \"Help\", \"Settings\", \"About\"], archive: \"zip\",\n    compression_choices: &[\"gzip\", \"zstd\"], password_visible: true,\n    include_patterns: &[\"src/**/*.rs\", \"tests/**\"], exclude_patterns:\n    &[\"target/**\"],\n}, GuiReviewState\n{\n    name: \"none-stream\", menu_entries: &[\"File\", \"Help\", \"Settings\", \"About\"],\n    archive: \"none\", compression_choices:\n    &[\"gzip\", \"zstd\", \"LZ4\", \"XZ\", \"zlib\", \"Brotli\", \"Snappy\", \"bzip2\",],\n    password_visible: false, include_patterns: &[\"docs/**/*.md\"],\n    exclude_patterns: &[],\n},]"
+---
+[
+    GuiReviewState {
+        name: "default-tar",
+        menu_entries: [
+            "File",
+            "Help",
+            "Settings",
+            "About",
+        ],
+        archive: "tar",
+        compression_choices: [
+            "zstd",
+            "gzip",
+            "none",
+        ],
+        password_visible: false,
+        include_patterns: [],
+        exclude_patterns: [],
+    },
+    GuiReviewState {
+        name: "zip-password",
+        menu_entries: [
+            "File",
+            "Help",
+            "Settings",
+            "About",
+        ],
+        archive: "zip",
+        compression_choices: [
+            "gzip",
+            "zstd",
+        ],
+        password_visible: true,
+        include_patterns: [
+            "src/**/*.rs",
+            "tests/**",
+        ],
+        exclude_patterns: [
+            "target/**",
+        ],
+    },
+    GuiReviewState {
+        name: "none-stream",
+        menu_entries: [
+            "File",
+            "Help",
+            "Settings",
+            "About",
+        ],
+        archive: "none",
+        compression_choices: [
+            "gzip",
+            "zstd",
+            "LZ4",
+            "XZ",
+            "zlib",
+            "Brotli",
+            "Snappy",
+            "bzip2",
+        ],
+        password_visible: false,
+        include_patterns: [
+            "docs/**/*.md",
+        ],
+        exclude_patterns: [],
+    },
+]

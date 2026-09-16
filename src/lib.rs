@@ -65,7 +65,7 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     Capability {
         id: "encryption",
-        label: "ZIP password protection",
+        label: "Password and encryption",
         surface: CapabilitySurface::CliGui,
     },
     Capability {
@@ -101,6 +101,18 @@ mod tests {
         status: &'static str,
         running: bool,
         has_result: bool,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct GuiReviewState {
+        name: &'static str,
+        menu_entries: &'static [&'static str],
+        archive: &'static str,
+        compression_choices: &'static [&'static str],
+        password_visible: bool,
+        include_patterns: &'static [&'static str],
+        exclude_patterns: &'static [&'static str],
     }
     #[test]
     fn all_capabilities_are_gui_or_explicit() {
@@ -147,5 +159,52 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn gui_review2_state_snapshots() {
+        insta::assert_debug_snapshot!(
+            "gui-review2-states",
+            [
+                GuiReviewState {
+                    name: "default-tar",
+                    menu_entries: &["File", "Help", "Settings", "About"],
+                    archive: "tar",
+                    compression_choices: &["zstd", "gzip", "none"],
+                    password_visible: false,
+                    include_patterns: &[],
+                    exclude_patterns: &[],
+                },
+                GuiReviewState {
+                    name: "zip-password",
+                    menu_entries: &["File", "Help", "Settings", "About"],
+                    archive: "zip",
+                    compression_choices: &["gzip", "zstd"],
+                    password_visible: true,
+                    include_patterns: &["src/**/*.rs", "tests/**"],
+                    exclude_patterns: &["target/**"],
+                },
+                GuiReviewState {
+                    name: "none-stream",
+                    menu_entries: &["File", "Help", "Settings", "About"],
+                    archive: "none",
+                    compression_choices: &[
+                        "gzip", "zstd", "LZ4", "XZ", "zlib", "Brotli", "Snappy", "bzip2",
+                    ],
+                    password_visible: false,
+                    include_patterns: &["docs/**/*.md"],
+                    exclude_patterns: &[],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn application_icon_asset_is_nonempty_and_vector_source() {
+        const ICON: &[u8] = include_bytes!("../assets/rustrepo-sanitizer.svg");
+        let source = std::str::from_utf8(ICON).expect("application icon is UTF-8 SVG");
+        assert!(source.contains("<svg"));
+        assert!(source.contains("viewBox="));
+        assert!(source.contains("Rustrepo Sanitizer"));
     }
 }

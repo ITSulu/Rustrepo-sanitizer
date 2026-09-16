@@ -15,6 +15,7 @@ GUI controls use accessible labels as stable semantic automation identifiers. `x
 | Advanced options | expand and inspect redaction, fail-on-secret, limits, filters, password |
 | Sanitize/Cancel | activate and observe status/result |
 | Safety | password is never persisted; invalid archive combinations are rejected by the shared core |
+| Archive none | deterministic JSONL stream with gzip/zstd-compatible compression |
 
 The ignored native test is intentionally black-box and must run in a session with D-Bus and AT-SPI enabled; it is not replaced by coordinate automation.
 
