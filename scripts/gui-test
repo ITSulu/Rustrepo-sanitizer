@@ -7,6 +7,7 @@ fi
 command -v busctl >/dev/null
 command -v timeout >/dev/null
 command -v gdbus >/dev/null
+command -v xdotool >/dev/null
 cargo test --test gui_xa11y --no-run
 cargo build --features gui --bin rustrepo-sanitizer-gui
 test_bin=$(find target/debug/deps -maxdepth 1 -type f -name "gui_xa11y-*" -executable | head -n 1)
@@ -39,4 +40,11 @@ if ! timeout 5s bash -c 'busctl --address="$1" list | grep -q org.a11y.atspi.Reg
     exit 1
 fi
 echo "AT-SPI registry verified on accessibility bus"
+window_id=$(xdotool search --name "Rustrepo Sanitizer" | head -n 1)
+test -n "$window_id" || { echo "native GUI window was not discoverable" >&2; exit 1; }
+xdotool windowsize "$window_id" 640 540
+sleep 1
+xdotool windowsize "$window_id" 1000 800
+sleep 1
+echo "native GUI resize checks completed"
 timeout --signal=TERM --kill-after=5s 35s "$test_bin" --ignored --nocapture
