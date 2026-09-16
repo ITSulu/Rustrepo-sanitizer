@@ -1094,6 +1094,7 @@ fn write_seven_zip(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_external_tar(
     output: &Path,
     compression: Compression,
@@ -1146,7 +1147,7 @@ fn write_external_tar(
             .spawn()
             .with_context(|| format!("running {tool}"))?
     };
-    let status = wait_for_child_with_cancellation(child, || cancelled())?;
+    let status = wait_for_child_with_cancellation(child, cancelled)?;
     let _ = fs::remove_file(&tar_path);
     if !status.success() {
         let _ = fs::remove_file(&temporary);
