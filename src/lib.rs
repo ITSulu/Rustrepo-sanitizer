@@ -304,6 +304,19 @@ mod tests {
     }
 
     #[test]
+    fn linux_gui_packaging_declares_desktop_identity() {
+        let desktop = std::fs::read_to_string("packaging/io.itsulu.RustrepoSanitizer.desktop")
+            .expect("desktop entry is available");
+        let flatpak = std::fs::read_to_string("packaging/io.itsulu.RustrepoSanitizer.yml")
+            .expect("Flatpak manifest is available");
+        assert!(desktop.contains("Exec=rustrepo-sanitizer-gui"));
+        assert!(desktop.contains("Icon=io.itsulu.RustrepoSanitizer"));
+        assert!(desktop.contains("StartupWMClass=rustrepo-sanitizer-gui"));
+        assert!(flatpak.contains("command: rustrepo-sanitizer-gui"));
+        assert!(flatpak.contains("/app/share/applications/io.itsulu.RustrepoSanitizer.desktop"));
+    }
+
+    #[test]
     fn xa11y_harness_covers_menu_and_cancellation_controls() {
         let harness = std::fs::read_to_string("tests/gui_xa11y.rs")
             .expect("semantic GUI harness is available");
