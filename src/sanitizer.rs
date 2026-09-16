@@ -440,10 +440,9 @@ pub fn default_output_path(
     let stem = if timestamp_name {
         let now = chrono::Local::now();
         format!(
-            "{name}-{}-{}-{}-sanitized",
+            "{}-{}-{name}-{head}-sanitized",
             now.format("%Y-%b-%d"),
-            now.format("%H-%M"),
-            head
+            now.format("%H-%M")
         )
     } else {
         format!("{name}-{head}-sanitized")
@@ -1449,19 +1448,20 @@ mod tests {
     #[test]
     fn timestamped_output_name_starts_with_timestamp_before_repository_name() {
         let d = repo();
-        let path = default_output_path(d.path(), ArchiveFormat::Zip, Compression::Gzip, true)
-            .unwrap();
+        let path =
+            default_output_path(d.path(), ArchiveFormat::Zip, Compression::Gzip, true).unwrap();
         let name = path.file_name().unwrap().to_string_lossy();
         let timestamp = name
             .as_bytes()
             .get(0..18)
             .is_some_and(|prefix| prefix[4] == b'-' && prefix[8] == b'-' && prefix[11] == b'-');
         assert!(timestamp, "timestamp must be first: {name}");
-        assert!(name.contains("-repo-"));
         assert!(name.ends_with("-sanitized.zip"));
+        let head = git_one(d.path(), &["rev-parse", "--short=7", "HEAD"]).unwrap();
+        assert!(name.contains(&format!("-{head}-sanitized.zip")));
 
-        let stable = default_output_path(d.path(), ArchiveFormat::Zip, Compression::Gzip, false)
-            .unwrap();
+        let stable =
+            default_output_path(d.path(), ArchiveFormat::Zip, Compression::Gzip, false).unwrap();
         let stable_name = stable.file_name().unwrap().to_string_lossy();
         assert_ne!(stable_name.as_bytes().get(4), Some(&b'-'));
         assert!(stable_name.ends_with("-sanitized.zip"));
