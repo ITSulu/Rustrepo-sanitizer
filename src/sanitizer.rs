@@ -1147,8 +1147,10 @@ fn write_external_tar(
             .spawn()
             .with_context(|| format!("running {tool}"))?
     };
-    let status = wait_for_child_with_cancellation(child, cancelled)?;
+    let status_result = wait_for_child_with_cancellation(child, cancelled);
     let _ = fs::remove_file(&tar_path);
+    let _ = fs::remove_file(&temporary);
+    let status = status_result?;
     if !status.success() {
         let _ = fs::remove_file(&temporary);
         bail!("{tool} failed with status {status}");
