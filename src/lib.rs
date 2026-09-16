@@ -292,6 +292,12 @@ mod tests {
     }
 
     #[test]
+    fn gui_does_not_silently_replace_invalid_compression_selection() {
+        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        assert!(!gui.contains("compression_for_gui_selection(format, compression_index as usize)\n                .unwrap_or(Compression::Zstd)"));
+    }
+
+    #[test]
     fn gui_clears_retained_password_when_archive_changes() {
         let ui = include_str!("../ui/main.slint");
         assert!(ui.contains("root.zip-password = \"\""));
