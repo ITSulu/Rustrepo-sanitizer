@@ -9,6 +9,18 @@ fn result_path_for_outcome(output: &std::path::Path, succeeded: bool) -> String 
     }
 }
 
+fn settings_values_for_policy(
+    policy: &itsulu_repo_sanitizer::security::PasswordPolicy,
+) -> (String, bool, bool, bool, bool) {
+    (
+        policy.minimum_length.to_string(),
+        policy.require_uppercase,
+        policy.require_lowercase,
+        policy.require_number,
+        policy.require_special,
+    )
+}
+
 #[cfg(feature = "gui")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use itsulu_repo_sanitizer::sanitizer::{
@@ -122,7 +134,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = help_for_callback.show();
     });
     let settings_for_callback = settings_window.clone();
+    let settings_source = window.as_weak();
     window.on_show_settings(move || {
+        if let Some(window) = settings_source.upgrade() {
+            let policy = PasswordPolicy {
+                minimum_length: window
+                    .get_password_policy_minimum_length()
+                    .parse()
+                    .unwrap_or(8),
+                require_uppercase: window.get_password_policy_uppercase(),
+                require_lowercase: window.get_password_policy_lowercase(),
+                require_number: window.get_password_policy_number(),
+                require_special: window.get_password_policy_special(),
+            };
+            let (minimum, uppercase, lowercase, number, special) =
+                settings_values_for_policy(&policy);
+            settings_for_callback.set_minimum_length(minimum.into());
+            settings_for_callback.set_require_uppercase(uppercase);
+            settings_for_callback.set_require_lowercase(lowercase);
+            settings_for_callback.set_require_number(number);
+            settings_for_callback.set_require_special(special);
+        }
         let _ = settings_for_callback.show();
     });
     let policy_main = window.as_weak();
