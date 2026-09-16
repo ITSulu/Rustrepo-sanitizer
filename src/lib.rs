@@ -281,6 +281,16 @@ mod tests {
     }
 
     #[test]
+    fn gui_refreshes_output_extension_when_capability_changes() {
+        let ui = include_str!("../ui/main.slint");
+        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        assert!(ui.contains("compression-changed"));
+        assert!(ui.contains("timestamp-changed"));
+        assert!(gui.contains("set_extension"));
+        assert!(gui.contains("output_extension"));
+    }
+
+    #[test]
     fn xa11y_harness_covers_menu_and_cancellation_controls() {
         let harness = std::fs::read_to_string("tests/gui_xa11y.rs")
             .expect("semantic GUI harness is available");
