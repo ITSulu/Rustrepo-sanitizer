@@ -229,6 +229,15 @@ mod tests {
     }
 
     #[test]
+    fn gui_title_uses_authoritative_package_version() {
+        let ui = include_str!("../ui/main.slint");
+        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        assert!(!ui.contains("Rustrepo Sanitizer 0.4.0"));
+        assert!(gui.contains("env!(\"CARGO_PKG_VERSION\")"));
+        assert!(gui.contains("set_app_title"));
+    }
+
+    #[test]
     fn forgejo_ci_declares_native_gui_semantic_test() {
         let workflow = std::fs::read_to_string(".forgejo/workflows/ci.yml")
             .expect("Forgejo CI workflow is available");
