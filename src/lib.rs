@@ -238,8 +238,7 @@ mod tests {
     #[test]
     fn forgejo_gui_dependencies_install_noninteractively() {
         let workflow = include_str!("../.forgejo/workflows/ci.yml");
-        assert!(workflow.contains(
-            "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y"
-        ));
+        assert!(workflow.contains("DEBIAN_FRONTEND=noninteractive apt-get update"));
+        assert!(workflow.contains("DEBIAN_FRONTEND=noninteractive apt-get install -y"));
     }
 }
