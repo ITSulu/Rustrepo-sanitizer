@@ -756,7 +756,7 @@ fn patterns(raw: &[String]) -> Result<GlobSet> {
 fn git_files(root: &Path, untracked: bool) -> Result<Vec<PathBuf>> {
     let mut args = vec!["ls-files", "-z"];
     if untracked {
-        args.extend(["--others", "--exclude-standard"]);
+        args.extend(["--cached", "--others", "--exclude-standard"]);
     }
     let output = Command::new("git")
         .current_dir(root)
@@ -766,12 +766,15 @@ fn git_files(root: &Path, untracked: bool) -> Result<Vec<PathBuf>> {
     if !output.status.success() {
         bail!("git ls-files failed");
     }
-    Ok(output
+    let mut files = output
         .stdout
         .split(|b| *b == 0)
         .filter(|x| !x.is_empty())
         .map(|x| PathBuf::from(String::from_utf8_lossy(x).into_owned()))
-        .collect())
+        .collect::<Vec<_>>();
+    files.sort();
+    files.dedup();
+    Ok(files)
 }
 fn git_one(root: &Path, args: &[&str]) -> Option<String> {
     let x = Command::new("git")
