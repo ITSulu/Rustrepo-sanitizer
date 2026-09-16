@@ -328,7 +328,9 @@ mod tests {
         let flatpak = std::fs::read_to_string("packaging/io.itsulu.RustrepoSanitizer.yml")
             .expect("Flatpak manifest is available");
         assert!(flatpak.contains("cargo build --release --locked --bin itsulu-repo-sanitizer"));
-        assert!(flatpak.contains("cargo build --release --locked --features gui --bin rustrepo-sanitizer-gui"));
+        assert!(flatpak.contains(
+            "cargo build --release --locked --features gui --bin rustrepo-sanitizer-gui"
+        ));
     }
 
     #[test]
