@@ -443,7 +443,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::result_path_for_outcome;
+    use super::{result_path_for_outcome, settings_values_for_policy};
+    use itsulu_repo_sanitizer::security::PasswordPolicy;
     use std::path::Path;
 
     #[test]
@@ -456,5 +457,17 @@ mod tests {
             result_path_for_outcome(Path::new("bundle.tar.zst"), true),
             "bundle.tar.zst"
         );
+    }
+
+    #[test]
+    fn settings_values_reflect_current_password_policy() {
+        let values = settings_values_for_policy(&PasswordPolicy {
+            minimum_length: 12,
+            require_uppercase: false,
+            require_lowercase: true,
+            require_number: false,
+            require_special: true,
+        });
+        assert_eq!(values, ("12".to_owned(), false, true, false, true));
     }
 }
