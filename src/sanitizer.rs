@@ -1744,6 +1744,45 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("cancelled"));
     }
 
+    #[test]
+    fn progress_events_include_writing_and_finished_after_scanning() {
+        let d = repo();
+        let output = d.path().join("events.tar.zst");
+        let mut events = Vec::new();
+        run_with_progress(
+            Config {
+                repository: d.path().into(),
+                output,
+                format: ArchiveFormat::Tar,
+                compression: Compression::Zstd,
+                report: ReportFormat::None,
+                include_untracked: false,
+                max_file_size: 100_000,
+                excludes: vec![],
+                includes: vec![],
+                redact: true,
+                fail_on_secret: false,
+                dry_run: false,
+                password: None,
+                password_policy: PasswordPolicy::default(),
+                password_file: None,
+                verbose: false,
+                quiet: true,
+            },
+            |event| events.push(event),
+            || false,
+        )
+        .unwrap();
+        assert!(matches!(
+            events.first(),
+            Some(ProgressEvent::Scanning { .. })
+        ));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, ProgressEvent::Writing { .. })));
+        assert!(matches!(events.last(), Some(ProgressEvent::Finished)));
+    }
+
     fn commit(path: &Path, message: &str) {
         let file = format!("file-{}", message.len());
         fs::write(path.join(&file), message).unwrap();
