@@ -2032,6 +2032,33 @@ mod tests {
     }
 
     #[test]
+    fn seven_zip_passwords_are_rejected_without_echoing_secret() {
+        let secret = "NotPrinted7!";
+        let config = Config {
+            repository: PathBuf::from("."),
+            output: PathBuf::from("out.7z"),
+            format: ArchiveFormat::SevenZip,
+            compression: Compression::None,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 1,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: false,
+            password: Some(secret.to_owned()),
+            password_policy: PasswordPolicy::default(),
+            password_file: None,
+            verbose: false,
+            quiet: false,
+        };
+        let error = validate_config(&config).unwrap_err().to_string();
+        assert!(error.contains("only for ZIP AES"));
+        assert!(!error.contains(secret));
+    }
+
+    #[test]
     fn cancellation_stops_before_scanning() {
         let d = tempdir().unwrap();
         git(d.path(), &["init", "-q"]);
