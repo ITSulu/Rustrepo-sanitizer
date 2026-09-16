@@ -343,6 +343,16 @@ mod tests {
     }
 
     #[test]
+    fn xa11y_harness_discovers_versioned_gui_title() {
+        let harness = std::fs::read_to_string("scripts/gui-test")
+            .expect("GUI harness must be readable");
+        assert!(
+            harness.contains("search --name 'Rustrepo Sanitizer.*'"),
+            "GUI harness must discover the versioned native window title"
+        );
+    }
+
+    #[test]
     fn native_gui_harness_can_override_repository_without_editing_ui_source() {
         let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
         assert!(gui.contains("RRS_GUI_REPOSITORY"));
