@@ -1375,6 +1375,52 @@ mod tests {
     }
 
     #[test]
+    fn zip_markdown_report_is_markdown_and_json_report_is_json() {
+        let d = repo();
+        for (report, name, expected) in [
+            (
+                ReportFormat::Markdown,
+                "SANITIZATION-REPORT.md",
+                "# Sanitization Report",
+            ),
+            (ReportFormat::Json, "SANITIZATION-REPORT.json", "\"files\""),
+        ] {
+            let output = d.path().join(format!("{}.zip", name));
+            run(Config {
+                repository: d.path().into(),
+                output: output.clone(),
+                format: ArchiveFormat::Zip,
+                compression: Compression::Gzip,
+                report,
+                include_untracked: false,
+                max_file_size: 100_000,
+                excludes: vec![],
+                includes: vec![],
+                redact: true,
+                fail_on_secret: false,
+                dry_run: false,
+                password: None,
+                password_policy: PasswordPolicy::default(),
+                password_file: None,
+                verbose: false,
+                quiet: true,
+            })
+            .unwrap();
+            let file = fs::File::open(output).unwrap();
+            let mut archive = zip::ZipArchive::new(file).unwrap();
+            let mut report_file = archive.by_name(name).unwrap();
+            let mut contents = String::new();
+            report_file.read_to_string(&mut contents).unwrap();
+            assert!(contents.contains(expected));
+            if report == ReportFormat::Markdown {
+                assert!(!contents.trim_start().starts_with('{'));
+            } else {
+                serde_json::from_str::<serde_json::Value>(&contents).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn archive_none_compcol_streams_write_nonempty_outputs() {
         let d = repo();
         for (index, compression) in [
