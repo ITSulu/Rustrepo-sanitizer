@@ -223,6 +223,12 @@ pub fn compatible_compressions(format: ArchiveFormat) -> Vec<Compression> {
         .collect()
 }
 
+/// Resolves the zero-based compression selector index used by the GUI against
+/// the same compatibility registry used for validation and CLI output.
+pub fn compression_for_gui_selection(format: ArchiveFormat, index: usize) -> Option<Compression> {
+    compatible_compressions(format).get(index).copied()
+}
+
 pub fn output_extension(format: ArchiveFormat, compression: Compression) -> Result<String> {
     let valid = compatible_compressions(format).contains(&compression);
     if !valid {
@@ -1396,7 +1402,10 @@ mod tests {
         ] {
             let choices = compatible_compressions(format);
             for (index, expected) in choices.iter().enumerate() {
-                assert_eq!(compression_for_gui_selection(format, index), Some(*expected));
+                assert_eq!(
+                    compression_for_gui_selection(format, index),
+                    Some(*expected)
+                );
             }
             assert_eq!(compression_for_gui_selection(format, choices.len()), None);
         }

@@ -26,8 +26,9 @@ fn settings_values_for_policy(
 #[cfg(feature = "gui")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use itsulu_repo_sanitizer::sanitizer::{
-        add_pattern, default_output_path, remove_pattern, run_with_progress, validate_config,
-        ArchiveFormat, Compression, Config, PasswordPolicy, ProgressEvent, ReportFormat,
+        add_pattern, compression_for_gui_selection, default_output_path, remove_pattern,
+        run_with_progress, validate_config, ArchiveFormat, Compression, Config, PasswordPolicy,
+        ProgressEvent, ReportFormat,
     };
     use slint::{ComponentHandle, Model, ModelRc, VecModel};
     use std::path::PathBuf;
@@ -245,33 +246,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     3 => ArchiveFormat::None,
                     _ => ArchiveFormat::Tar,
                 };
-                let compression = match format_index {
-                    1 => match compression_index {
-                        0 => Compression::Gzip,
-                        _ => Compression::Zstd,
-                    },
-                    2 => Compression::None,
-                    3 => match compression_index {
-                        0 => Compression::Gzip,
-                        1 => Compression::Zstd,
-                        2 => Compression::Lz4,
-                        3 => Compression::Xz,
-                        4 => Compression::Zlib,
-                        5 => Compression::Brotli,
-                        6 => Compression::Snappy,
-                        _ => Compression::Bzip2,
-                    },
-                    _ => match compression_index {
-                        1 => Compression::Gzip,
-                        2 => Compression::None,
-                        3 => Compression::Lzip,
-                        4 => Compression::Lzma,
-                        5 => Compression::Lzo,
-                        6 => Compression::Lrzip,
-                        7 => Compression::Xz,
-                        _ => Compression::Zstd,
-                    },
-                };
+                let compression = compression_for_gui_selection(format, compression_index as usize)
+                    .unwrap_or(Compression::Zstd);
                 let filename = default_output_path(&repo, format, compression, timestamp)
                     .ok()
                     .and_then(|path| path.file_name().map(|name| name.to_owned()))
@@ -319,33 +295,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 3 => ArchiveFormat::None,
                 _ => ArchiveFormat::Tar,
             };
-            let compression = match format_index {
-                1 => match compression_index {
-                    0 => Compression::Gzip,
-                    _ => Compression::Zstd,
-                },
-                2 => Compression::None,
-                3 => match compression_index {
-                    0 => Compression::Gzip,
-                    1 => Compression::Zstd,
-                    2 => Compression::Lz4,
-                    3 => Compression::Xz,
-                    4 => Compression::Zlib,
-                    5 => Compression::Brotli,
-                    6 => Compression::Snappy,
-                    _ => Compression::Bzip2,
-                },
-                _ => match compression_index {
-                    1 => Compression::Gzip,
-                    2 => Compression::None,
-                    3 => Compression::Lzip,
-                    4 => Compression::Lzma,
-                    5 => Compression::Lzo,
-                    6 => Compression::Lrzip,
-                    7 => Compression::Xz,
-                    _ => Compression::Zstd,
-                },
-            };
+            let compression = compression_for_gui_selection(format, compression_index as usize)
+                .unwrap_or(Compression::Zstd);
             let report = match report_index {
                 1 => ReportFormat::Json,
                 2 => ReportFormat::None,
