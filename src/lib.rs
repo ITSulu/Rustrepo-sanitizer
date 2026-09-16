@@ -344,8 +344,8 @@ mod tests {
 
     #[test]
     fn xa11y_harness_discovers_versioned_gui_title() {
-        let harness = std::fs::read_to_string("scripts/gui-test")
-            .expect("GUI harness must be readable");
+        let harness =
+            std::fs::read_to_string("scripts/gui-test").expect("GUI harness must be readable");
         assert!(
             harness.contains("search --name 'Rustrepo Sanitizer.*'"),
             "GUI harness must discover the versioned native window title"
