@@ -73,7 +73,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let options = compatible_compressions(format)
             .into_iter()
-            .map(|compression| compression_capability(compression).label.into())
+            .map(|compression| {
+                if format == ArchiveFormat::SevenZip && compression == Compression::None {
+                    "7z".into()
+                } else {
+                    compression_capability(compression).label.into()
+                }
+            })
             .collect::<Vec<slint::SharedString>>();
         window.set_compression_options(ModelRc::new(VecModel::from(options)));
     };
