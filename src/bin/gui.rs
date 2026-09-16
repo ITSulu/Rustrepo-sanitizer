@@ -316,8 +316,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     3 => ArchiveFormat::None,
                     _ => ArchiveFormat::Tar,
                 };
-                let compression = compression_for_gui_selection(format, compression_index as usize)
-                    .unwrap_or(Compression::Zstd);
+                let Some(compression) =
+                    compression_for_gui_selection(format, compression_index as usize)
+                else {
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(window) = output_ui.upgrade() {
+                            window.set_status("Invalid compression for selected archive".into());
+                        }
+                    });
+                    return;
+                };
                 let filename = default_output_path(&repo, format, compression, timestamp)
                     .ok()
                     .and_then(|path| path.file_name().map(|name| name.to_owned()))
@@ -366,8 +374,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 3 => ArchiveFormat::None,
                 _ => ArchiveFormat::Tar,
             };
-            let compression = compression_for_gui_selection(format, compression_index as usize)
-                .unwrap_or(Compression::Zstd);
+            let Some(compression) =
+                compression_for_gui_selection(format, compression_index as usize)
+            else {
+                if let Some(window) = weak.upgrade() {
+                    window.set_status("Invalid compression for selected archive".into());
+                }
+                return;
+            };
             let report = match report_index {
                 1 => ReportFormat::Json,
                 2 => ReportFormat::None,
