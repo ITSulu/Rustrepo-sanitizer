@@ -1605,6 +1605,43 @@ mod tests {
     }
 
     #[test]
+    fn built_in_globs_cover_nested_extensions_dotfiles_and_interactions() {
+        let include_presets = [
+            ("docs/**/*.md", "docs/guide/README.md"),
+            ("src/**/*.rs", "src/nested/module.rs"),
+            ("tests/**", "tests/fixtures/input.json"),
+            (".forgejo/**", ".forgejo/workflows/ci.yml"),
+            ("target/**", "target/debug/app"),
+            ("vendor/**", "vendor/lib/source.c"),
+            ("*.log", "build.log"),
+        ];
+        for (glob, path) in include_presets {
+            assert!(patterns(&[glob.to_owned()]).unwrap().is_match(path));
+        }
+        let exclude_presets = [
+            ("docs/**", "docs/guide.md"),
+            ("target/**", "target/debug/app"),
+            ("vendor/**", "vendor/lib/source.c"),
+            ("node_modules/**", "node_modules/pkg/index.js"),
+            (".idea/**", ".idea/workspace.xml"),
+            ("*.log", "build.log"),
+            ("*.tmp", "scratch.tmp"),
+        ];
+        for (glob, path) in exclude_presets {
+            assert!(patterns(&[glob.to_owned()]).unwrap().is_match(path));
+        }
+        let include = patterns(&["**".to_owned()]).unwrap();
+        let exclude = patterns(&["*.log".to_owned(), "target/**".to_owned()]).unwrap();
+        for path in [".env", "src/main.rs", "nested/docs/readme.md"] {
+            assert!(include.is_match(path));
+            assert!(!exclude.is_match(path));
+        }
+        for path in ["build.log", "target/debug/app"] {
+            assert!(exclude.is_match(path));
+        }
+    }
+
+    #[test]
     fn archive_none_is_a_reversible_jsonl_stream() {
         let d = repo();
         let output = d.path().join("bundle.gz");
