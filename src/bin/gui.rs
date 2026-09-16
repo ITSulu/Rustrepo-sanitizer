@@ -75,6 +75,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let window = MainWindow::new()?;
     window.set_app_title(format!("Rustrepo Sanitizer {}", env!("CARGO_PKG_VERSION")).into());
+    if let Ok(repository) = std::env::var("RRS_GUI_REPOSITORY") {
+        window.set_repository_path(repository.into());
+    }
     let set_compression_options = |window: &MainWindow, format_index: i32| {
         let format = match format_index {
             1 => ArchiveFormat::Zip,
