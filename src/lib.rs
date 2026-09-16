@@ -234,4 +234,12 @@ mod tests {
             .expect("Forgejo CI workflow is available");
         assert!(workflow.contains("./scripts/gui-test"));
     }
+
+    #[test]
+    fn forgejo_gui_dependencies_install_noninteractively() {
+        let workflow = include_str!("../.forgejo/workflows/ci.yml");
+        assert!(workflow.contains(
+            "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y"
+        ));
+    }
 }
