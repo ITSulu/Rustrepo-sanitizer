@@ -1341,6 +1341,48 @@ mod tests {
         let result = wait_for_child_with_cancellation(child, || true);
         assert!(result.unwrap_err().to_string().contains("cancelled"));
     }
+
+    #[test]
+    fn external_compressor_cancellation_removes_staging_files() {
+        if Command::new("xz").arg("--version").output().is_err() {
+            return;
+        }
+        let d = tempdir().unwrap();
+        let output = d.path().join("cancelled.tar.xz");
+        let files = vec![(
+            "file.txt".to_owned(),
+            vec![b'x'; 4096],
+            ManifestFile {
+                path: "file.txt".to_owned(),
+                sha256: "hash".to_owned(),
+                original_bytes: 4096,
+                output_bytes: 4096,
+            },
+        )];
+        let manifest = Manifest {
+            version: "0.4.0".to_owned(),
+            repository: "test".to_owned(),
+            branch: "main".to_owned(),
+            head: "head".to_owned(),
+            files: files.iter().map(|(_, _, file)| file.clone()).collect(),
+            exclusions: vec![],
+            redactions: 0,
+        };
+        let error = write_external_tar(
+            &output,
+            Compression::Xz,
+            &files,
+            &manifest,
+            "history",
+            None,
+            ReportFormat::None,
+            &|| true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert!(!output.exists());
+        assert!(fs::read_dir(d.path()).unwrap().next().is_none());
+    }
     #[test]
     fn redacts_value_not_reference() {
         let redacted = redact_text("TOKEN=not-a-real-secret\nsecretKeyRef: app-secret\n");
