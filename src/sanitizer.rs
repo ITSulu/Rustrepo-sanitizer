@@ -1592,6 +1592,26 @@ mod tests {
     }
 
     #[test]
+    fn every_supported_capability_has_its_declared_output_extension() {
+        for archive in [
+            ArchiveFormat::None,
+            ArchiveFormat::Tar,
+            ArchiveFormat::Zip,
+            ArchiveFormat::SevenZip,
+        ] {
+            for capability in COMPRESSION_CAPABILITIES {
+                if compatible_compressions(archive).contains(&capability.compression) {
+                    let expected = output_extension(archive, capability.compression).unwrap();
+                    assert!(!expected.is_empty());
+                    if archive == ArchiveFormat::Tar && capability.standalone {
+                        assert!(expected.starts_with("tar."));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn pattern_lists_validate_deduplicate_and_remove() {
         let mut patterns = Vec::new();
         assert!(add_pattern(&mut patterns, "  docs/**/*.md ").unwrap());
