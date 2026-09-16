@@ -1444,6 +1444,44 @@ mod tests {
     }
 
     #[test]
+    fn include_untracked_unions_eligible_tracked_and_untracked_files() {
+        let d = repo();
+        fs::write(d.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        Command::new("git")
+            .args(["add", ".gitignore"])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args([
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "add ignore rules",
+            ])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        fs::write(d.path().join("a.txt"), "modified\n").unwrap();
+        fs::write(d.path().join("untracked.txt"), "new\n").unwrap();
+        fs::write(d.path().join("ignored.txt"), "ignored\n").unwrap();
+
+        let files = git_files(d.path(), true).unwrap();
+        assert_eq!(
+            files,
+            vec![
+                PathBuf::from(".gitignore"),
+                PathBuf::from("a.txt"),
+                PathBuf::from("ref.yaml"),
+                PathBuf::from("untracked.txt"),
+            ]
+        );
+    }
+
+    #[test]
     fn capability_matrix_has_expected_compatibility_and_extensions() {
         assert_eq!(
             output_extension(ArchiveFormat::Tar, Compression::Gzip).unwrap(),
