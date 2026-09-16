@@ -175,6 +175,75 @@ fn main() -> ExitCode {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_parser_preserves_safe_defaults_and_explicit_options() {
+        let cli = Cli::try_parse_from([
+            "itsulu-repo-sanitizer",
+            "sanitize",
+            "repo",
+            "--archive",
+            "none",
+            "--compression",
+            "gzip",
+            "--report",
+            "json",
+            "--include",
+            "src/**",
+            "--exclude",
+            "target/**",
+            "--include-untracked",
+            "--dry-run",
+            "--no-redact",
+        ])
+        .unwrap();
+
+        let Command::Sanitize(args) = cli.command else {
+            panic!("expected sanitize command");
+        };
+        assert_eq!(args.repository, PathBuf::from("repo"));
+        assert_eq!(args.archive, ArchiveFormat::None);
+        assert_eq!(args.compression, Compression::Gzip);
+        assert!(matches!(args.report, CliReportFormat::Json));
+        assert_eq!(args.include, vec!["src/**"]);
+        assert_eq!(args.exclude, vec!["target/**"]);
+        assert!(args.include_untracked);
+        assert!(args.dry_run);
+        assert!(args.no_redact);
+        assert!(args.redact);
+    }
+
+    #[test]
+    fn password_file_and_stdin_are_mutually_exclusive() {
+        let result = Cli::try_parse_from([
+            "itsulu-repo-sanitizer",
+            "sanitize",
+            "--password-file",
+            "password.txt",
+            "--password-stdin",
+        ]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn sanitize_parser_uses_documented_defaults() {
+        let cli = Cli::try_parse_from(["itsulu-repo-sanitizer", "sanitize"]).unwrap();
+        let Command::Sanitize(args) = cli.command else {
+            panic!("expected sanitize command");
+        };
+        assert_eq!(args.repository, PathBuf::from("."));
+        assert_eq!(args.archive, ArchiveFormat::Tar);
+        assert_eq!(args.compression, Compression::Zstd);
+        assert!(matches!(args.report, CliReportFormat::Markdown));
+        assert!(args.redact);
+        assert!(args.timestamp_name);
+        assert_eq!(args.password_min_length, 8);
+    }
+}
+
 fn read_password(
     path: Option<&std::path::Path>,
     from_stdin: bool,
