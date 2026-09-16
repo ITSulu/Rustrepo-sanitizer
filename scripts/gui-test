@@ -40,11 +40,15 @@ if ! timeout 5s bash -c 'busctl --address="$1" list | grep -q org.a11y.atspi.Reg
     exit 1
 fi
 echo "AT-SPI registry verified on accessibility bus"
-window_id=$(xdotool search --name "Rustrepo Sanitizer" | head -n 1)
-test -n "$window_id" || { echo "native GUI window was not discoverable" >&2; exit 1; }
-xdotool windowsize "$window_id" 640 540
-sleep 1
-xdotool windowsize "$window_id" 1000 800
-sleep 1
-echo "native GUI resize checks completed"
+if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    window_id=$(xdotool search --name "Rustrepo Sanitizer" | head -n 1)
+    test -n "$window_id" || { echo "native GUI window was not discoverable" >&2; exit 1; }
+    xdotool windowsize "$window_id" 640 540
+    sleep 1
+    xdotool windowsize "$window_id" 1000 800
+    sleep 1
+    echo "native GUI resize checks completed"
+else
+    echo "native GUI resize checks skipped: xdotool cannot manage Wayland windows"
+fi
 timeout --signal=TERM --kill-after=5s 35s "$test_bin" --ignored --nocapture
