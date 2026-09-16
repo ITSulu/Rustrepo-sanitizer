@@ -341,4 +341,10 @@ mod tests {
             assert!(harness.contains(label), "xa11y harness must cover {label}");
         }
     }
+
+    #[test]
+    fn native_gui_harness_can_override_repository_without_editing_ui_source() {
+        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        assert!(gui.contains("RRS_GUI_REPOSITORY"));
+    }
 }
