@@ -238,6 +238,13 @@ mod tests {
     }
 
     #[test]
+    fn gui_documentation_describes_reproducible_build_date_metadata() {
+        let docs = std::fs::read_to_string("docs/gui.md").expect("GUI documentation is available");
+        assert!(docs.contains("SOURCE_DATE_EPOCH"));
+        assert!(docs.contains("reproducible"));
+    }
+
+    #[test]
     fn forgejo_ci_declares_native_gui_semantic_test() {
         let workflow = std::fs::read_to_string(".forgejo/workflows/ci.yml")
             .expect("Forgejo CI workflow is available");
