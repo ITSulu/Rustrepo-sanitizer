@@ -218,4 +218,11 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn forgejo_ci_declares_native_gui_semantic_test() {
+        let workflow = std::fs::read_to_string(".forgejo/workflows/ci.yml")
+            .expect("Forgejo CI workflow is available");
+        assert!(workflow.contains("./scripts/gui-test"));
+    }
 }
