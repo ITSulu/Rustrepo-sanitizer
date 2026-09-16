@@ -261,8 +261,8 @@ mod tests {
 
     #[test]
     fn gui_harness_traces_nested_dbus_session() {
-        let harness = std::fs::read_to_string("scripts/gui-test")
-            .expect("GUI harness is available");
+        let harness =
+            std::fs::read_to_string("scripts/gui-test").expect("GUI harness is available");
         assert!(harness.contains("bash -x \"$0\""));
     }
 
