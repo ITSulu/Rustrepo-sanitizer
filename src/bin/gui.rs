@@ -10,6 +10,15 @@ fn result_path_for_outcome(output: &std::path::Path, succeeded: bool) -> String 
     }
 }
 
+fn output_path_for_capability_change(current: &str, automatic: bool, extension: &str) -> String {
+    if !automatic || current.is_empty() {
+        return current.to_owned();
+    }
+    let mut path = std::path::PathBuf::from(current);
+    path.set_extension(extension);
+    path.display().to_string()
+}
+
 #[allow(dead_code)]
 fn settings_values_for_policy(
     policy: &itsulu_repo_sanitizer::security::PasswordPolicy,
@@ -28,7 +37,6 @@ fn refresh_output_extension(window: &MainWindow, format_index: i32, compression_
     use itsulu_repo_sanitizer::sanitizer::{
         compression_for_gui_selection, output_extension, ArchiveFormat,
     };
-    use std::path::PathBuf;
     let format = match format_index {
         1 => ArchiveFormat::Zip,
         2 => ArchiveFormat::SevenZip,
@@ -38,10 +46,13 @@ fn refresh_output_extension(window: &MainWindow, format_index: i32, compression_
     if let Some(compression) = compression_for_gui_selection(format, compression_index as usize) {
         if let Ok(extension) = output_extension(format, compression) {
             let current = window.get_output_path();
-            if !current.is_empty() {
-                let mut path = PathBuf::from(current.to_string());
-                path.set_extension(extension);
-                window.set_output_path(path.display().to_string().into());
+            let updated = output_path_for_capability_change(
+                current.as_str(),
+                window.get_output_path_automatic(),
+                &extension,
+            );
+            if updated != current {
+                window.set_output_path(updated.into());
             }
         }
     }
@@ -314,6 +325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let path = directory.join(filename);
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(window) = output_ui.upgrade() {
+                        window.set_output_path_automatic(false);
                         window.set_status(
                             format!("Output folder selected: {}", directory.display()).into(),
                         );
@@ -487,6 +499,14 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn preserves_user_selected_output_path_when_capability_changes() {
+        assert_eq!(
+            super::output_path_for_capability_change("/tmp/review.tar.gz", false, "zip"),
+            "/tmp/review.tar.gz"
+        );
+    }
+
     use super::{result_path_for_outcome, settings_values_for_policy};
     use itsulu_repo_sanitizer::security::PasswordPolicy;
     use std::path::Path;
