@@ -291,6 +291,12 @@ mod tests {
     }
 
     #[test]
+    fn gui_clears_retained_password_when_archive_changes() {
+        let ui = include_str!("../ui/main.slint");
+        assert!(ui.contains("root.zip-password = \"\""));
+    }
+
+    #[test]
     fn xa11y_harness_covers_menu_and_cancellation_controls() {
         let harness = std::fs::read_to_string("tests/gui_xa11y.rs")
             .expect("semantic GUI harness is available");
