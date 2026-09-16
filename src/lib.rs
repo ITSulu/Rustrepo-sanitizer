@@ -267,6 +267,12 @@ mod tests {
     }
 
     #[test]
+    fn current_release_metadata_targets_0_4_2() {
+        let manifest = include_str!("../Cargo.toml");
+        assert!(manifest.contains("version = \"0.4.2\""));
+    }
+
+    #[test]
     fn gui_compression_model_is_not_hard_coded_in_slint() {
         let ui = include_str!("../ui/main.slint");
         assert!(ui.contains("compression-options"));
