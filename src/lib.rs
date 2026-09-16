@@ -347,4 +347,11 @@ mod tests {
         let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
         assert!(gui.contains("RRS_GUI_REPOSITORY"));
     }
+
+    #[test]
+    fn manually_edited_gui_output_path_disables_automatic_extension_updates() {
+        let ui = std::fs::read_to_string("ui/main.slint").expect("GUI source is available");
+        assert!(ui.contains("user-edited"));
+        assert!(ui.contains("output-path-automatic = false"));
+    }
 }
