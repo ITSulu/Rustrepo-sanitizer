@@ -3,7 +3,8 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command, Stdio},
+    time::Duration,
 };
 
 use anyhow::{bail, Context, Result};
@@ -303,6 +304,23 @@ fn command_available(name: &str) -> bool {
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
         .any(|dir| dir.join(name).is_file())
+}
+
+fn wait_for_child_with_cancellation<C: Fn() -> bool>(
+    mut child: Child,
+    cancelled: C,
+) -> Result<std::process::ExitStatus> {
+    loop {
+        if cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("sanitization cancelled");
+        }
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn ensure_external_compressor_available(name: &str) -> Result<()> {
@@ -934,6 +952,7 @@ fn write_archive_with_cancellation<C: Fn() -> bool>(
             history,
             password,
             report,
+            &cancelled,
         );
     }
     let temporary = temporary_path(output);
@@ -1083,6 +1102,7 @@ fn write_external_tar(
     history: &str,
     password: Option<&str>,
     report: ReportFormat,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
     if password.is_some() {
         bail!("password protection is unavailable for external compression tools");
@@ -1109,23 +1129,24 @@ fn write_external_tar(
         report,
     )?;
     let temporary = temporary_path(output);
-    let status = if tool == "lrzip" {
+    let child = if tool == "lrzip" {
         Command::new(tool)
             .args(["-q", "-o"])
             .arg(&temporary)
             .arg(&tar_path)
-            .status()
+            .spawn()
             .with_context(|| format!("running {tool}"))?
     } else {
         let input = File::open(&tar_path)?;
         let output_file = File::create(&temporary)?;
         Command::new(tool)
             .args(args)
-            .stdin(input)
-            .stdout(output_file)
-            .status()
+            .stdin(Stdio::from(input))
+            .stdout(Stdio::from(output_file))
+            .spawn()
             .with_context(|| format!("running {tool}"))?
     };
+    let status = wait_for_child_with_cancellation(child, || cancelled())?;
     let _ = fs::remove_file(&tar_path);
     if !status.success() {
         let _ = fs::remove_file(&temporary);
@@ -1315,10 +1336,7 @@ mod tests {
 
     #[test]
     fn external_child_cancellation_terminates_process() {
-        let child = Command::new("sh")
-            .args(["-c", "sleep 30"])
-            .spawn()
-            .unwrap();
+        let child = Command::new("sh").args(["-c", "sleep 30"]).spawn().unwrap();
         let result = wait_for_child_with_cancellation(child, || true);
         assert!(result.unwrap_err().to_string().contains("cancelled"));
     }
