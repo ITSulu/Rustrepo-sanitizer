@@ -1312,6 +1312,16 @@ mod tests {
         assert!(!output.exists());
         assert!(fs::read_dir(d.path()).unwrap().next().is_none());
     }
+
+    #[test]
+    fn external_child_cancellation_terminates_process() {
+        let child = Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .unwrap();
+        let result = wait_for_child_with_cancellation(child, || true);
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
     #[test]
     fn redacts_value_not_reference() {
         let redacted = redact_text("TOKEN=not-a-real-secret\nsecretKeyRef: app-secret\n");
