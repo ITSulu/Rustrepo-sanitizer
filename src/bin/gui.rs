@@ -222,6 +222,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => match compression_index {
                         1 => Compression::Gzip,
                         2 => Compression::None,
+                        3 => Compression::Lzip,
+                        4 => Compression::Lzma,
+                        5 => Compression::Lzo,
+                        6 => Compression::Lrzip,
+                        7 => Compression::Xz,
                         _ => Compression::Zstd,
                     },
                 };
@@ -291,6 +296,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => match compression_index {
                     1 => Compression::Gzip,
                     2 => Compression::None,
+                    3 => Compression::Lzip,
+                    4 => Compression::Lzma,
+                    5 => Compression::Lzo,
+                    6 => Compression::Lrzip,
+                    7 => Compression::Xz,
                     _ => Compression::Zstd,
                 },
             };

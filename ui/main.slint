@@ -154,7 +154,7 @@ export component MainWindow inherits Window {
             Text { text: "Archive"; }
             format := HelpfulComboBox { model: ["tar", "zip", "7z", "none"]; help: "Choose the archive container used for the sanitized bundle."; accessible-id: "archive-format"; accessible-label: "Archive format"; }
             Text { text: "Compression"; }
-            compression := HelpfulComboBox { model: format.current-index == 1 ? ["gzip", "zstd"] : format.current-index == 2 ? ["none"] : format.current-index == 3 ? ["gzip", "zstd", "LZ4", "XZ", "zlib", "Brotli", "Snappy", "bzip2"] : ["zstd", "gzip", "none"]; help: "Choose a compressor compatible with the selected archive."; accessible-id: "compression"; accessible-label: "Compression"; }
+            compression := HelpfulComboBox { model: format.current-index == 1 ? ["gzip", "zstd"] : format.current-index == 2 ? ["none"] : format.current-index == 3 ? ["gzip", "zstd", "LZ4", "XZ", "zlib", "Brotli", "Snappy", "bzip2"] : ["zstd", "gzip", "none", "lzip", "lzma", "lzo", "lrzip", "xz"]; help: "Choose a compressor compatible with the selected archive."; accessible-id: "compression"; accessible-label: "Compression"; }
             Text { text: "Report"; }
             report := HelpfulComboBox { model: ["Markdown", "JSON", "None"]; help: "Choose the optional human-readable or JSON sanitization report."; accessible-id: "report"; accessible-label: "Report format"; }
         }
