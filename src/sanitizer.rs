@@ -1560,6 +1560,40 @@ mod tests {
     }
 
     #[test]
+    fn zip_password_produces_aes_encrypted_readable_output() {
+        let d = repo();
+        let output = d.path().join("encrypted.zip");
+        run(Config {
+            repository: d.path().into(),
+            output: output.clone(),
+            format: ArchiveFormat::Zip,
+            compression: Compression::Gzip,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 100_000,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: false,
+            password: Some("ValidPass1!".to_owned()),
+            password_policy: PasswordPolicy::default(),
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        })
+        .unwrap();
+
+        let file = fs::File::open(&output).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("a.txt").is_err());
+        let mut member = archive.by_name_decrypt("a.txt", b"ValidPass1!").unwrap();
+        let mut contents = String::new();
+        member.read_to_string(&mut contents).unwrap();
+        assert!(contents.contains("hello"));
+    }
+
+    #[test]
     fn archive_none_compcol_streams_write_nonempty_outputs() {
         let d = repo();
         for (index, compression) in [
