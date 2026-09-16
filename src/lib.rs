@@ -297,6 +297,13 @@ mod tests {
     }
 
     #[test]
+    fn seven_zip_gui_uses_truthful_owned_compression_label() {
+        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        assert!(gui.contains("ArchiveFormat::SevenZip"));
+        assert!(gui.contains("\"7z\""));
+    }
+
+    #[test]
     fn xa11y_harness_covers_menu_and_cancellation_controls() {
         let harness = std::fs::read_to_string("tests/gui_xa11y.rs")
             .expect("semantic GUI harness is available");
