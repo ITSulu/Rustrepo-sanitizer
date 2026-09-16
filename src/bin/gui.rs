@@ -1,6 +1,14 @@
 #[cfg(feature = "gui")]
 slint::include_modules!();
 
+fn result_path_for_outcome(output: &std::path::Path, succeeded: bool) -> String {
+    if succeeded {
+        output.display().to_string()
+    } else {
+        String::new()
+    }
+}
+
 #[cfg(feature = "gui")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use itsulu_repo_sanitizer::sanitizer::{
@@ -415,9 +423,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(window) = final_ui.upgrade() {
                         window.set_running(false);
-                        if succeeded {
-                            window.set_result_path(result_path.display().to_string().into());
-                        }
+                        window.set_result_path(
+                            result_path_for_outcome(&result_path, succeeded).into(),
+                        );
                         window.set_status(status.into());
                     }
                 });
@@ -440,7 +448,10 @@ mod tests {
 
     #[test]
     fn failed_run_clears_result_path() {
-        assert_eq!(result_path_for_outcome(Path::new("bundle.tar.zst"), false), "");
+        assert_eq!(
+            result_path_for_outcome(Path::new("bundle.tar.zst"), false),
+            ""
+        );
         assert_eq!(
             result_path_for_outcome(Path::new("bundle.tar.zst"), true),
             "bundle.tar.zst"
