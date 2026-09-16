@@ -240,5 +240,6 @@ mod tests {
         let workflow = include_str!("../.forgejo/workflows/ci.yml");
         assert!(workflow.contains("DEBIAN_FRONTEND=noninteractive apt-get update"));
         assert!(workflow.contains("DEBIAN_FRONTEND=noninteractive apt-get install -y"));
+        assert!(workflow.contains("xvfb"));
     }
 }
