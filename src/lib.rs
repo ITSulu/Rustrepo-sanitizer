@@ -209,17 +209,6 @@ mod tests {
     }
 
     #[test]
-    fn gui_exposes_every_registered_tar_compression() {
-        let source = std::fs::read_to_string("ui/main.slint").expect("GUI source is available");
-        for label in ["lzip", "lzma", "lzo", "lrzip", "xz"] {
-            assert!(
-                source.contains(label),
-                "GUI must expose the supported TAR compression {label}"
-            );
-        }
-    }
-
-    #[test]
     fn advanced_gui_panel_does_not_use_an_immutable_height() {
         let ui = include_str!("../ui/main.slint");
         assert!(
@@ -267,5 +256,13 @@ mod tests {
         assert!(workflow.contains("x11-utils"));
         assert!(harness.contains("_NET_WM_STATE_MAXIMIZED_VERT"));
         assert!(harness.contains("_NET_WM_STATE_MAXIMIZED_HORZ"));
+    }
+
+    #[test]
+    fn gui_compression_model_is_not_hard_coded_in_slint() {
+        let ui = include_str!("../ui/main.slint");
+        assert!(ui.contains("compression-options"));
+        assert!(ui.contains("archive-changed"));
+        assert!(!ui.contains("[\"gzip\", \"zstd\"]"));
     }
 }
