@@ -247,6 +247,7 @@ mod tests {
         assert!(workflow.contains("DEBIAN_FRONTEND=noninteractive apt-get install -y"));
         assert!(workflow.contains("xvfb"));
         assert!(workflow.contains("xauth"));
+        assert!(workflow.contains("systemd"));
     }
 
     #[test]
