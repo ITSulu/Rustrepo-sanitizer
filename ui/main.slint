@@ -18,6 +18,8 @@ component HelpfulComboBox inherits ComboBox {
 }
 component HelpfulLineEdit inherits LineEdit {
     in property <string> help;
+    callback user-edited(string);
+    edited(text) => { root.user-edited(text); }
     Tooltip { text: @markdown("\{root.help}"); }
 }
 
@@ -154,7 +156,7 @@ export component MainWindow inherits Window {
         }
         Text { text: "Output File"; }
         HorizontalLayout { spacing: 8px;
-            output := HelpfulLineEdit { text <=> root.output-path; placeholder-text: "Automatic filename"; help: "Leave empty for a repository-root filename, or provide an explicit output path."; accessible-id: "output-path"; accessible-label: "Output file path"; }
+            output := HelpfulLineEdit { text <=> root.output-path; placeholder-text: "Automatic filename"; help: "Leave empty for a repository-root filename, or provide an explicit output path."; accessible-id: "output-path"; accessible-label: "Output file path"; user-edited(_) => { root.output-path-automatic = false; } }
             HelpfulButton { text: "Browse…"; help: "Select the output folder; the filename is derived automatically."; accessible-id: "browse-output"; accessible-label: "Browse for output folder"; clicked => { root.browse-output(repository.text, format.current-index, compression.current-index, timestamp.checked); } }
         }
         untracked := HelpfulCheckBox { text: "Include untracked files"; help: "Include files not currently tracked by Git, subject to safety filters."; accessible-id: "include-untracked"; accessible-label: "Include untracked files"; }
