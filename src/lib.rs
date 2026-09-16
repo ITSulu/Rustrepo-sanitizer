@@ -220,6 +220,15 @@ mod tests {
     }
 
     #[test]
+    fn advanced_gui_panel_does_not_use_an_immutable_height() {
+        let ui = include_str!("../ui/main.slint");
+        assert!(
+            !ui.contains("ScrollView { height: 210px;"),
+            "Advanced options must remain responsive as the native window is resized"
+        );
+    }
+
+    #[test]
     fn forgejo_ci_declares_native_gui_semantic_test() {
         let workflow = std::fs::read_to_string(".forgejo/workflows/ci.yml")
             .expect("Forgejo CI workflow is available");
