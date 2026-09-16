@@ -304,6 +304,7 @@ fn command_available(name: &str) -> bool {
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
         .any(|dir| dir.join(name).is_file())
 }
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReportFormat {
     Markdown,
@@ -1220,6 +1221,15 @@ mod tests {
             .status()
             .unwrap();
         d
+    }
+
+    #[test]
+    fn missing_external_compressor_is_reported_before_staging() {
+        let error = ensure_external_compressor_available(
+            "rustrepo-sanitizer-test-compressor-that-does-not-exist",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("was not found in PATH"));
     }
     #[test]
     fn redacts_value_not_reference() {
