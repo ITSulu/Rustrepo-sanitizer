@@ -21,6 +21,14 @@ The ignored native test is intentionally black-box and must run in a session wit
 
 Run the reproducible spike with `./scripts/gui-test`; it bootstraps the dedicated AT-SPI bus and restores the original accessibility state.
 
+### Reproducible About metadata
+
+The About window's build date is derived from the reproducible-build environment variable
+`SOURCE_DATE_EPOCH` when it is provided by the build system. This keeps release builds
+deterministic: the same source and metadata produce the same displayed date. Development
+builds without that variable display `reproducible build metadata unavailable` instead of
+using the current wall-clock time.
+
 ### xa11y compatibility spike
 
 The harness distinguishes the normal session bus from the dedicated accessibility bus by calling `org.a11y.Bus.GetAddress`, then verifies `org.a11y.atspi.Registry` on the returned address. The native Slint process is discoverable and semantic controls can be located and activated. The current Slint/AccessKit stack does not expose AT-SPI `EditableText` actions for `LineEdit`; xa11y therefore reports unsupported `InsertText`/`SetTextContents` for text entry. This is documented compatibility evidence, not hidden by coordinate automation.
