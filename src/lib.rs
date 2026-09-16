@@ -207,4 +207,15 @@ mod tests {
         assert!(source.contains("viewBox="));
         assert!(source.contains("Rustrepo Sanitizer"));
     }
+
+    #[test]
+    fn gui_exposes_every_registered_tar_compression() {
+        let source = std::fs::read_to_string("ui/main.slint").expect("GUI source is available");
+        for label in ["lzip", "lzma", "lzo", "lrzip", "xz"] {
+            assert!(
+                source.contains(label),
+                "GUI must expose the supported TAR compression {label}"
+            );
+        }
+    }
 }
