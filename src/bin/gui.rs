@@ -51,7 +51,7 @@ fn refresh_output_extension(window: &MainWindow, format_index: i32, compression_
                 window.get_output_path_automatic(),
                 &extension,
             );
-            if updated != current {
+            if updated != current.as_str() {
                 window.set_output_path(updated.into());
             }
         }
