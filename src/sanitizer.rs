@@ -1385,6 +1385,22 @@ mod tests {
         assert!(!output.exists());
         assert!(fs::read_dir(d.path()).unwrap().next().is_none());
     }
+
+    #[test]
+    fn gui_compression_selection_follows_authoritative_capabilities() {
+        for format in [
+            ArchiveFormat::None,
+            ArchiveFormat::Tar,
+            ArchiveFormat::Zip,
+            ArchiveFormat::SevenZip,
+        ] {
+            let choices = compatible_compressions(format);
+            for (index, expected) in choices.iter().enumerate() {
+                assert_eq!(compression_for_gui_selection(format, index), Some(*expected));
+            }
+            assert_eq!(compression_for_gui_selection(format, choices.len()), None);
+        }
+    }
     #[test]
     fn redacts_value_not_reference() {
         let redacted = redact_text("TOKEN=not-a-real-secret\nsecretKeyRef: app-secret\n");
