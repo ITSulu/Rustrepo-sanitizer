@@ -1136,13 +1136,33 @@ fn write_zip(
         }
         add("manifest.json", &serde_json::to_vec_pretty(manifest)?)?;
         if report != ReportFormat::None {
+            let report_data = if report == ReportFormat::Json {
+                serde_json::to_vec_pretty(manifest)?
+            } else {
+                format!(
+                    "# Sanitization Report\n\n- Repository: `{}`\n- Branch: `{}`\n- HEAD: `{}`\n- Included files: {}\n- Excluded files: {}\n- Redactions: {}\n\n## Exclusions\n\n{}",
+                    manifest.repository,
+                    manifest.branch,
+                    manifest.head,
+                    manifest.files.len(),
+                    manifest.exclusions.len(),
+                    manifest.redactions,
+                    manifest
+                        .exclusions
+                        .iter()
+                        .map(|e| format!("- `{}`: {}", e.path, e.reason))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+                .into_bytes()
+            };
             add(
                 if report == ReportFormat::Json {
                     "SANITIZATION-REPORT.json"
                 } else {
                     "SANITIZATION-REPORT.md"
                 },
-                &serde_json::to_vec_pretty(manifest)?,
+                &report_data,
             )?;
         }
         zip.finish().context("finishing ZIP")?;
