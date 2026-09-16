@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [[ -z "${RRS_GUI_DBUS:-}" ]]; then
-    exec dbus-run-session -- env RRS_GUI_DBUS=1 "$0"
+    exec dbus-run-session -- env RRS_GUI_DBUS=1 bash -x "$0"
 fi
 command -v busctl >/dev/null
 command -v timeout >/dev/null
