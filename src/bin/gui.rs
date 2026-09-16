@@ -386,14 +386,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let result = run_with_progress(
                     config,
                     move |event| {
-                        if let ProgressEvent::Scanning { examined, .. } = event {
-                            let progress_ui = progress_ui.clone();
-                            let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(w) = progress_ui.upgrade() {
-                                    w.set_status(format!("Scanning… {examined} files").into());
-                                }
-                            });
-                        }
+                        let status = match event {
+                            ProgressEvent::Scanning { examined, .. } => {
+                                format!("Scanning… {examined} files")
+                            }
+                            ProgressEvent::Writing { included } => {
+                                format!("Writing… {included} files")
+                            }
+                            ProgressEvent::Finished => "Finishing…".to_owned(),
+                        };
+                        let progress_ui = progress_ui.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(w) = progress_ui.upgrade() {
+                                w.set_status(status.into());
+                            }
+                        });
                     },
                     || cancel.load(Ordering::Relaxed),
                 );
