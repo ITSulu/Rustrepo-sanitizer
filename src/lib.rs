@@ -265,4 +265,13 @@ mod tests {
         assert!(ui.contains("archive-changed"));
         assert!(!ui.contains("[\"gzip\", \"zstd\"]"));
     }
+
+    #[test]
+    fn xa11y_harness_covers_menu_and_cancellation_controls() {
+        let harness = std::fs::read_to_string("tests/gui_xa11y.rs")
+            .expect("semantic GUI harness is available");
+        for label in ["Settings", "About", "Cancel sanitization"] {
+            assert!(harness.contains(label), "xa11y harness must cover {label}");
+        }
+    }
 }

@@ -37,6 +37,17 @@ fn discovers_slint_controls_semantically() {
         tree.contains("Help"),
         "desktop Help menu must be represented in the accessibility tree"
     );
+    assert!(
+        tree.contains("Settings"),
+        "desktop Settings menu must be represented in the accessibility tree"
+    );
+    assert!(
+        tree.contains("About"),
+        "desktop About menu must be represented in the accessibility tree"
+    );
+    app.locator(r##"button[name="Cancel sanitization"]"##)
+        .wait_visible(std::time::Duration::from_secs(5))
+        .expect("Cancel control must be semantically discoverable");
     app.locator(r##"check_box[name="Advanced options"]"##)
         .press()
         .expect("Advanced options must be semantically activatable");
