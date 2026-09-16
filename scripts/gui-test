@@ -8,6 +8,7 @@ command -v busctl >/dev/null
 command -v timeout >/dev/null
 command -v gdbus >/dev/null
 command -v xdotool >/dev/null
+command -v xprop >/dev/null
 cargo test --test gui_xa11y --no-run
 cargo build --features gui --bin rustrepo-sanitizer-gui
 test_bin=$(find target/debug/deps -maxdepth 1 -type f -name "gui_xa11y-*" -executable | head -n 1)
@@ -48,6 +49,17 @@ if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
     xdotool windowsize "$window_id" 1000 800
     sleep 1
     echo "native GUI resize checks completed"
+    xdotool key --window "$window_id" alt+F10
+    sleep 1
+    maximized_state=$(xprop -id "$window_id" _NET_WM_STATE)
+    grep -q "_NET_WM_STATE_MAXIMIZED_VERT" <<<"$maximized_state"
+    grep -q "_NET_WM_STATE_MAXIMIZED_HORZ" <<<"$maximized_state"
+    xdotool key --window "$window_id" alt+F10
+    sleep 1
+    restored_state=$(xprop -id "$window_id" _NET_WM_STATE)
+    ! grep -q "_NET_WM_STATE_MAXIMIZED_VERT" <<<"$restored_state"
+    ! grep -q "_NET_WM_STATE_MAXIMIZED_HORZ" <<<"$restored_state"
+    echo "native GUI maximize and restore checks completed"
 else
     echo "native GUI resize checks skipped: xdotool cannot manage Wayland windows"
 fi
