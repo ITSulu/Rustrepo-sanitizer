@@ -609,7 +609,7 @@ where
     };
     let history = git_history(&root, config.redact)?;
     if !config.dry_run {
-        write_archive(
+        write_archive_with_cancellation(
             &output,
             config.format,
             config.compression,
@@ -618,6 +618,7 @@ where
             &history,
             config.password.as_deref(),
             config.report,
+            cancelled,
         )?;
     }
     progress(ProgressEvent::Finished);
@@ -876,6 +877,31 @@ fn write_archive(
     password: Option<&str>,
     report: ReportFormat,
 ) -> Result<()> {
+    write_archive_with_cancellation(
+        output,
+        format,
+        compression,
+        files,
+        manifest,
+        history,
+        password,
+        report,
+        || false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_archive_with_cancellation<C: Fn() -> bool>(
+    output: &Path,
+    format: ArchiveFormat,
+    compression: Compression,
+    files: &[(String, Vec<u8>, ManifestFile)],
+    manifest: &Manifest,
+    history: &str,
+    password: Option<&str>,
+    report: ReportFormat,
+    cancelled: C,
+) -> Result<()> {
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -933,9 +959,15 @@ fn write_archive(
     };
     let result = (|| -> Result<()> {
         let mut tar = Builder::new(writer);
+        if cancelled() {
+            bail!("sanitization cancelled");
+        }
         append(&mut tar, ".git/COMMIT-HISTORY.txt", history.as_bytes())?;
         let mut sums = BTreeMap::new();
         for (name, data, entry) in files {
+            if cancelled() {
+                bail!("sanitization cancelled");
+            }
             append(&mut tar, name, data)?;
             sums.insert(name.clone(), entry.sha256.clone());
         }
