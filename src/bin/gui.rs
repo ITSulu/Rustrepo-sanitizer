@@ -432,3 +432,18 @@ fn main() {
     eprintln!("GUI support is disabled; run with --features gui");
     std::process::exit(2);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::result_path_for_outcome;
+    use std::path::Path;
+
+    #[test]
+    fn failed_run_clears_result_path() {
+        assert_eq!(result_path_for_outcome(Path::new("bundle.tar.zst"), false), "");
+        assert_eq!(
+            result_path_for_outcome(Path::new("bundle.tar.zst"), true),
+            "bundle.tar.zst"
+        );
+    }
+}
