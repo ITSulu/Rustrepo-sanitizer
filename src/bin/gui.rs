@@ -1,6 +1,7 @@
 #[cfg(feature = "gui")]
 slint::include_modules!();
 
+#[allow(dead_code)]
 fn result_path_for_outcome(output: &std::path::Path, succeeded: bool) -> String {
     if succeeded {
         output.display().to_string()
@@ -9,6 +10,7 @@ fn result_path_for_outcome(output: &std::path::Path, succeeded: bool) -> String 
     }
 }
 
+#[allow(dead_code)]
 fn settings_values_for_policy(
     policy: &itsulu_repo_sanitizer::security::PasswordPolicy,
 ) -> (String, bool, bool, bool, bool) {
