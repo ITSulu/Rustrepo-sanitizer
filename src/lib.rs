@@ -324,6 +324,14 @@ mod tests {
     }
 
     #[test]
+    fn flatpak_builds_binaries_before_installing_them() {
+        let flatpak = std::fs::read_to_string("packaging/io.itsulu.RustrepoSanitizer.yml")
+            .expect("Flatpak manifest is available");
+        assert!(flatpak.contains("cargo build --release --locked --bin itsulu-repo-sanitizer"));
+        assert!(flatpak.contains("cargo build --release --locked --features gui --bin rustrepo-sanitizer-gui"));
+    }
+
+    #[test]
     fn xa11y_harness_covers_menu_and_cancellation_controls() {
         let harness = std::fs::read_to_string("tests/gui_xa11y.rs")
             .expect("semantic GUI harness is available");
