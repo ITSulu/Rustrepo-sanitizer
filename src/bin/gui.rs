@@ -38,6 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc,
     };
     let window = MainWindow::new()?;
+    window.set_app_title(format!("Rustrepo Sanitizer {}", env!("CARGO_PKG_VERSION")).into());
     let include_ui = window.as_weak();
     window.on_add_include(move |pattern| {
         if let Some(window) = include_ui.upgrade() {

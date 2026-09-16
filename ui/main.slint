@@ -81,13 +81,14 @@ export component AboutWindow inherits Window {
 }
 
 export component MainWindow inherits Window {
-    title: "Rustrepo Sanitizer 0.4.0";
     icon: @image-url("../assets/rustrepo-sanitizer.svg");
+    title: root.app-title;
     preferred-width: 760px;
     preferred-height: 620px;
     min-width: 600px;
     min-height: 520px;
     in property <string> status: "Ready to sanitize a repository";
+    in property <string> app-title;
     in-out property <bool> running: false;
     in-out property <string> repository-path: ".";
     in-out property <string> output-path: "";
