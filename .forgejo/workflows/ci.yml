@@ -30,6 +30,14 @@ jobs:
       - run: cargo check --all-features
       - run: cargo check --features gui --bin rustrepo-sanitizer-gui
 
+  gui-xa11y:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: https://github.com/dtolnay/rust-toolchain@stable
+      - run: apt-get update && apt-get install -y --no-install-recommends at-spi2-core dbus-x11 libxkbcommon-dev
+      - run: ./scripts/gui-test
+
   security-release:
     runs-on: ubuntu-latest
     steps:
