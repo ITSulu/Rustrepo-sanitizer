@@ -436,7 +436,7 @@ struct Manifest {
     exclusions: Vec<Exclusion>,
     redactions: usize,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct ManifestFile {
     path: String,
     sha256: String,
@@ -1235,6 +1235,50 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("was not found in PATH"));
+    }
+
+    #[test]
+    fn cancellation_during_archive_writing_removes_partial_output() {
+        let d = tempdir().unwrap();
+        let output = d.path().join("cancelled.tar");
+        let files = (0..32)
+            .map(|index| {
+                (
+                    format!("file-{index}.txt"),
+                    vec![b'x'; 4096],
+                    ManifestFile {
+                        path: format!("file-{index}.txt"),
+                        sha256: "hash".to_owned(),
+                        original_bytes: 4096,
+                        output_bytes: 4096,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let manifest = Manifest {
+            version: "0.4.0".to_owned(),
+            repository: "test".to_owned(),
+            branch: "main".to_owned(),
+            head: "head".to_owned(),
+            files: files.iter().map(|(_, _, file)| file.clone()).collect(),
+            exclusions: vec![],
+            redactions: 0,
+        };
+        let error = write_archive_with_cancellation(
+            &output,
+            ArchiveFormat::Tar,
+            Compression::None,
+            &files,
+            &manifest,
+            "history",
+            None,
+            ReportFormat::None,
+            || true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert!(!output.exists());
+        assert!(fs::read_dir(d.path()).unwrap().next().is_none());
     }
     #[test]
     fn redacts_value_not_reference() {
