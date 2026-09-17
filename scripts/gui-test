@@ -47,7 +47,12 @@ if ! timeout 5s bash -c 'busctl --address="$1" list | grep -q org.a11y.atspi.Reg
 fi
 echo "AT-SPI registry verified on accessibility bus"
 if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
-    test -n "$window_id" || { echo "native GUI window was not discoverable" >&2; exit 1; }
+    if [[ -z "$window_id" ]]; then
+        echo "native GUI window was not discoverable" >&2
+        echo "GUI startup log:" >&2
+        cat /tmp/rustrepo-sanitizer-gui.log >&2 || true
+        exit 1
+    fi
     xdotool windowsize "$window_id" 640 540
     sleep 1
     xdotool windowsize "$window_id" 1000 800
