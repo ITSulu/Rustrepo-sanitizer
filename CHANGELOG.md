@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Second GUI revision with the tested native GUI elements and compression
+  presentation improvements.
+
 This project follows the `MAJOR.MINOR.PATCH` policy documented in
 `CONTRIBUTING.md`. Every release is published from a merged pull request.
 
