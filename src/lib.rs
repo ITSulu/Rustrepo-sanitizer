@@ -374,8 +374,8 @@ mod tests {
 
     #[test]
     fn xa11y_workflow_installs_runtime_xlib_libraries() {
-        let workflow =
-            std::fs::read_to_string(".forgejo/workflows/ci.yml").expect("CI workflow must be readable");
+        let workflow = std::fs::read_to_string(".forgejo/workflows/ci.yml")
+            .expect("CI workflow must be readable");
         assert!(
             workflow.contains("libx11-6"),
             "GUI accessibility job must install the runtime Xlib shared library"
