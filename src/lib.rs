@@ -383,6 +383,16 @@ mod tests {
     }
 
     #[test]
+    fn xa11y_workflow_installs_runtime_xkbcommon_x11_library() {
+        let workflow = std::fs::read_to_string(".forgejo/workflows/ci.yml")
+            .expect("CI workflow must be readable");
+        assert!(
+            workflow.contains("libxkbcommon-x11-0"),
+            "GUI accessibility job must install the runtime XKB X11 shared library"
+        );
+    }
+
+    #[test]
     fn native_gui_harness_can_override_repository_without_editing_ui_source() {
         let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
         assert!(gui.contains("RRS_GUI_REPOSITORY"));
