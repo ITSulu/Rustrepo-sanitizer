@@ -9,6 +9,7 @@ command -v timeout >/dev/null
 command -v gdbus >/dev/null
 command -v xdotool >/dev/null
 command -v xprop >/dev/null
+command -v openbox >/dev/null
 cargo test --test gui_xa11y --no-run
 cargo build --features gui --bin rustrepo-sanitizer-gui
 test_bin=$(find target/debug/deps -maxdepth 1 -type f -name "gui_xa11y-*" -executable | head -n 1)
@@ -27,8 +28,12 @@ restore() {
     busctl --user set-property org.a11y.Bus "$status_path" "$status_iface" "$status_prop" b "$original" >/dev/null 2>&1 || true
     if [[ -n "${gui_pid:-}" ]]; then kill "$gui_pid" >/dev/null 2>&1 || true; wait "$gui_pid" >/dev/null 2>&1 || true; fi
     if [[ -n "${registry_pid:-}" ]]; then kill "$registry_pid" >/dev/null 2>&1 || true; wait "$registry_pid" >/dev/null 2>&1 || true; fi
+    if [[ -n "${wm_pid:-}" ]]; then kill "$wm_pid" >/dev/null 2>&1 || true; wait "$wm_pid" >/dev/null 2>&1 || true; fi
 }
 trap restore EXIT
+openbox --startup /usr/bin/true >/tmp/rustrepo-openbox.log 2>&1 &
+wm_pid=$!
+sleep 1
 AT_SPI_BUS="$accessibility_bus" /usr/lib/at-spi2-registryd --dbus-name=org.a11y.atspi.Registry >/tmp/rustrepo-atspi-registry.log 2>&1 &
 registry_pid=$!
 sleep 1
