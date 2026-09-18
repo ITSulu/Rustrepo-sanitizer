@@ -10,7 +10,7 @@ env:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: garuda-16
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -23,7 +23,7 @@ jobs:
       - run: cargo check --features gui --bin rustrepo-sanitizer-gui
 
   stable-check:
-    runs-on: ubuntu-latest
+    runs-on: garuda-16
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -31,7 +31,7 @@ jobs:
       - run: cargo check --features gui --bin rustrepo-sanitizer-gui
 
   gui-xa11y:
-    runs-on: ubuntu-latest
+    runs-on: garuda-16
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -39,7 +39,7 @@ jobs:
       - run: xvfb-run --auto-servernum bash -x ./scripts/gui-test
 
   security-release:
-    runs-on: ubuntu-latest
+    runs-on: garuda-16
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
