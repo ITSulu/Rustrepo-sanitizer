@@ -1,0 +1,20 @@
+name: Runner acceptance
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4, 5]
+    runs-on: garuda-16
+    steps:
+      - name: Identify isolated runner slot
+        run: |
+          set -eu
+          printf 'slot=%s host=%s workspace=%s\n' '${{ matrix.slot }}' "$(hostname)" "$PWD"
+          test -n "$GITHUB_WORKSPACE"
+          sleep 45
+          printf 'completed slot=%s host=%s workspace=%s\n' '${{ matrix.slot }}' "$(hostname)" "$PWD"

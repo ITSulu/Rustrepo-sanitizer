@@ -49,11 +49,16 @@ itsulu-repo-sanitizer sanitize [REPOSITORY] [OPTIONS]
 
   --output PATH                 Archive destination
   --archive tar                 Archive/container format
-  --archive zip|7z              ZIP or 7z container (7z requires the `7z` tool)
-  --compression none|gzip|zstd|lz4|lzip|lzma|lzo|lrzip|xz
-                                Compression codec (`none` is TAR only)
+  --archive none|tar|zip|7z     JSONL stream, TAR, ZIP, or 7z container
+  --compression none|gzip|zstd|lz4|lzip|lzma|lzo|lrzip|xz|zlib|brotli|snappy|bzip2
+                                Compression codec constrained by the archive matrix
   --password-file PATH          Read ZIP AES password without exposing it in arguments
   --password-stdin              Read ZIP AES password from standard input
+  --password-min-length N       Password policy minimum length (default: 8)
+  --password-require-uppercase BOOL
+  --password-require-lowercase BOOL
+  --password-require-number BOOL
+  --password-require-special BOOL
   --timestamp-name false        Omit wall-clock data from default filenames
   --report markdown|json|none   Report format
   --include-untracked           Consider untracked regular files too
@@ -75,13 +80,15 @@ itsulu-repo-sanitizer sanitize . --fail-on-secret --quiet
 itsulu-repo-sanitizer list-formats
 ```
 
-When `--output` is omitted, the archive is named
-`<repository>-YYYY-Mmm-DD-hh-mm-<short-git-head>-sanitized.tar.{gz,zst}` beside
-the repository. The wall-clock timestamp is filename-only; archive members
-remain reproducible. Use `--timestamp-name off` for a stable CI-oriented
-default filename. Current backends are internal Rust TAR (gzip/Zstandard)
-and ZIP (Deflate/Zstandard), plus external 7z and TAR stream-compressor
-backends (LZ4, lzip, LZMA, LZO, lrzip, and XZ). ZIP password mode
+When `--output` is omitted, the archive is named inside the repository root as
+`<repository>-YYYY-Mmm-DD-hh-mm-<short-git-head>-sanitized.<extension>`. The
+wall-clock timestamp is filename-only; archive members remain reproducible.
+Use `--timestamp-name false` for a stable CI-oriented default filename.
+Archive-none emits a reversible JSONL stream with one record per sanitized
+file. Current backends are internal Rust TAR (gzip/Zstandard), ZIP
+(Deflate/Zstandard), pure-Rust compcol streams (LZ4-frame, XZ, zlib, Brotli,
+Snappy, and bzip2 for Archive-none), plus external TAR stream-compressor
+backends (lzip, LZMA, LZO, lrzip). ZIP password mode
 uses AES-256; passwords are never written to archives, reports, diagnostics,
 or manifests. Additional codecs and password encryption for non-ZIP
 formats require additional backends and are intentionally rejected.

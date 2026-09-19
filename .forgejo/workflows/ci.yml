@@ -7,28 +7,46 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_HTTP_TIMEOUT: 180
+  CARGO_NET_RETRY: 10
+  FORGEJO_PRIMARY_RUNNER: garuda-16
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: garuda-16
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - run: apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
+      - run: cargo check --features gui --bin rustrepo-sanitizer-gui
 
   stable-check:
-    runs-on: ubuntu-latest
+    runs-on: garuda-16
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
       - run: cargo check --all-features
+      - run: cargo check --features gui --bin rustrepo-sanitizer-gui
+
+  gui-xa11y:
+    runs-on: garuda-16
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: https://github.com/dtolnay/rust-toolchain@stable
+      - run: UCF_FORCE_CONFFOLD=1 DEBIAN_FRONTEND=noninteractive apt-get update && UCF_FORCE_CONFFOLD=1 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends at-spi2-core dbus-x11 libx11-6 libx11-xcb1 libxext6 libxfixes3 libxi6 libxkbcommon-dev libxkbcommon-x11-0 libxrender1 libxrandr2 libxcursor1 libxinerama1 systemd x11-utils xauth xdotool xvfb
+      - run: xvfb-run --auto-servernum bash -x ./scripts/gui-test
 
   security-release:
-    runs-on: ubuntu-latest
+    runs-on: garuda-16
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable

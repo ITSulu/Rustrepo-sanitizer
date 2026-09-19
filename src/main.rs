@@ -1,10 +1,9 @@
-mod sanitizer;
-mod security;
-
 use std::{io::Read, path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use sanitizer::{default_output_path, run, ArchiveFormat, Compression, Config, ReportFormat};
+use itsulu_repo_sanitizer::sanitizer::{
+    default_output_path, run, ArchiveFormat, Compression, Config, PasswordPolicy, ReportFormat,
+};
 
 #[derive(Parser)]
 #[command(
@@ -57,6 +56,16 @@ struct SanitizeArgs {
     password_file: Option<PathBuf>,
     #[arg(long, conflicts_with = "password_file")]
     password_stdin: bool,
+    #[arg(long = "password-min-length", default_value_t = 8)]
+    password_min_length: usize,
+    #[arg(long = "password-require-uppercase", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_uppercase: bool,
+    #[arg(long = "password-require-lowercase", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_lowercase: bool,
+    #[arg(long = "password-require-number", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_number: bool,
+    #[arg(long = "password-require-special", default_value_t = true, action = clap::ArgAction::Set)]
+    password_require_special: bool,
     #[arg(short, long)]
     verbose: bool,
     #[arg(short, long)]
@@ -73,7 +82,7 @@ enum CliReportFormat {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     if matches!(cli.command, Command::ListFormats) {
-        sanitizer::print_formats();
+        itsulu_repo_sanitizer::sanitizer::print_formats();
         return ExitCode::SUCCESS;
     }
     let Command::Sanitize(args) = cli.command else {
@@ -125,6 +134,13 @@ fn main() -> ExitCode {
         fail_on_secret: args.fail_on_secret,
         dry_run: args.dry_run,
         password,
+        password_policy: PasswordPolicy {
+            minimum_length: args.password_min_length,
+            require_uppercase: args.password_require_uppercase,
+            require_lowercase: args.password_require_lowercase,
+            require_number: args.password_require_number,
+            require_special: args.password_require_special,
+        },
         password_file: args.password_file,
         verbose: args.verbose,
         quiet: args.quiet,
@@ -180,5 +196,69 @@ fn read_password(
         Err("password must not be empty".to_owned())
     } else {
         Ok(Some(value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_parser_preserves_safe_defaults_and_explicit_options() {
+        let cli = Cli::try_parse_from([
+            "itsulu-repo-sanitizer",
+            "sanitize",
+            "repo",
+            "--archive",
+            "none",
+            "--compression",
+            "gzip",
+            "--report",
+            "json",
+            "--include",
+            "src/**",
+            "--exclude",
+            "target/**",
+            "--include-untracked",
+            "--dry-run",
+            "--no-redact",
+        ])
+        .unwrap();
+        let Command::Sanitize(args) = cli.command else {
+            panic!("expected sanitize command")
+        };
+        assert_eq!(args.repository, PathBuf::from("repo"));
+        assert_eq!(args.archive, ArchiveFormat::None);
+        assert_eq!(args.compression, Compression::Gzip);
+        assert!(matches!(args.report, CliReportFormat::Json));
+        assert_eq!(args.include, vec!["src/**"]);
+        assert_eq!(args.exclude, vec!["target/**"]);
+        assert!(args.include_untracked && args.dry_run && args.no_redact && args.redact);
+    }
+
+    #[test]
+    fn password_file_and_stdin_are_mutually_exclusive() {
+        assert!(Cli::try_parse_from([
+            "itsulu-repo-sanitizer",
+            "sanitize",
+            "--password-file",
+            "password.txt",
+            "--password-stdin",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn sanitize_parser_uses_documented_defaults() {
+        let cli = Cli::try_parse_from(["itsulu-repo-sanitizer", "sanitize"]).unwrap();
+        let Command::Sanitize(args) = cli.command else {
+            panic!("expected sanitize command")
+        };
+        assert_eq!(args.repository, PathBuf::from("."));
+        assert_eq!(args.archive, ArchiveFormat::Tar);
+        assert_eq!(args.compression, Compression::Zstd);
+        assert!(matches!(args.report, CliReportFormat::Markdown));
+        assert!(args.redact && args.timestamp_name);
+        assert_eq!(args.password_min_length, 8);
     }
 }

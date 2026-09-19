@@ -1,0 +1,30 @@
+---
+source: src/lib.rs
+expression: "[GuiState\n{\n    name: \"default\", status: \"Ready to sanitize a repository\", running: false,\n    has_result: false\n}, GuiState\n{\n    name: \"running\", status: \"Scanning… 3 files\", running: true, has_result:\n    false\n}, GuiState\n{\n    name: \"success\", status: \"Complete: 3 files, 1 redactions\", running:\n    false, has_result: true\n}, GuiState\n{\n    name: \"validation-error\", status:\n    \"Invalid options: compression is not valid for the selected archive format\",\n    running: false, has_result: false\n},]"
+---
+[
+    GuiState {
+        name: "default",
+        status: "Ready to sanitize a repository",
+        running: false,
+        has_result: false,
+    },
+    GuiState {
+        name: "running",
+        status: "Scanning… 3 files",
+        running: true,
+        has_result: false,
+    },
+    GuiState {
+        name: "success",
+        status: "Complete: 3 files, 1 redactions",
+        running: false,
+        has_result: true,
+    },
+    GuiState {
+        name: "validation-error",
+        status: "Invalid options: compression is not valid for the selected archive format",
+        running: false,
+        has_result: false,
+    },
+]

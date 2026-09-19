@@ -1,0 +1,211 @@
+import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox } from "std-widgets.slint";
+
+component HelpfulButton inherits Button {
+    in property <string> help;
+    Tooltip { text: @markdown("\{root.help}"); }
+}
+component HelpfulCheckBox inherits CheckBox {
+    in property <string> help;
+    callback checked-changed(bool);
+    changed checked => { root.checked-changed(self.checked); }
+    Tooltip { text: @markdown("\{root.help}"); }
+}
+component HelpfulComboBox inherits ComboBox {
+    in property <string> help;
+    callback selection-changed(int);
+    changed current-index => { root.selection-changed(self.current-index); }
+    Tooltip { text: @markdown("\{root.help}"); }
+}
+component HelpfulLineEdit inherits LineEdit {
+    in property <string> help;
+    callback user-edited(string);
+    edited(text) => { root.user-edited(text); }
+    Tooltip { text: @markdown("\{root.help}"); }
+}
+
+export component HelpWindow inherits Window {
+    title: "Rustrepo Sanitizer Help";
+    preferred-width: 520px;
+    preferred-height: 360px;
+    min-width: 420px;
+    min-height: 280px;
+    VerticalBox { padding: 24px; spacing: 12px;
+        Text { text: "Help"; font-size: 24px; }
+        Text { text: "Rustrepo-sanitizer creates deterministic, sanitized review bundles from Git repositories. The GUI and CLI use the same sanitizer engine. Select a repository, choose an output folder and options, then activate Sanitize; progress, results, and validation messages appear in the main window."; wrap: word-wrap; accessible-label: "Rustrepo Sanitizer help text"; }
+        Text { text: "Shortcuts: Ctrl+O select repository · Ctrl+Shift+O select output folder · Ctrl+Enter sanitize · Escape cancel · F1 help · Ctrl+, settings · Ctrl+Q quit"; wrap: word-wrap; accessible-label: "Keyboard shortcut reference"; }
+        Button { text: "Close"; clicked => { root.close(); } }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "Rustrepo Sanitizer Settings";
+    preferred-width: 460px;
+    preferred-height: 360px;
+    min-width: 380px;
+    min-height: 300px;
+    in-out property <string> minimum-length: "8";
+    in-out property <bool> require-uppercase: true;
+    in-out property <bool> require-lowercase: true;
+    in-out property <bool> require-number: true;
+    in-out property <bool> require-special: true;
+    callback apply-policy();
+    VerticalBox { padding: 24px; spacing: 10px;
+        Text { text: "Password complexity"; font-size: 24px; }
+        Text { text: "These settings validate passwords before an encryption-capable archive is written. Passwords are never persisted."; wrap: word-wrap; }
+        LineEdit { text <=> root.minimum-length; placeholder-text: "Minimum length"; accessible-label: "Minimum password length"; }
+        CheckBox { text: "Require uppercase"; checked <=> root.require-uppercase; }
+        CheckBox { text: "Require lowercase"; checked <=> root.require-lowercase; }
+        CheckBox { text: "Require number"; checked <=> root.require-number; }
+        CheckBox { text: "Require special character"; checked <=> root.require-special; }
+        HorizontalLayout {
+            Button { text: "Apply"; clicked => { root.apply-policy(); } }
+            Button { text: "Close"; clicked => { root.close(); } }
+        }
+    }
+}
+
+export component AboutWindow inherits Window {
+    title: "About Rustrepo Sanitizer";
+    preferred-width: 520px;
+    preferred-height: 390px;
+    min-width: 420px;
+    min-height: 320px;
+    in property <string> version;
+    in property <string> build-date;
+    callback open-website(string);
+    VerticalBox { padding: 24px; spacing: 10px;
+        Text { text: "Rustrepo-sanitizer"; font-size: 24px; }
+        Text { text: "Version " + root.version; }
+        Text { text: "Build date: " + root.build-date; }
+        Text { text: "Apache License 2.0"; }
+        Text { text: "Slint is used under its applicable selected Slint license."; wrap: word-wrap; }
+        Text { text: "Architecture, modeling, direction, and technical review by Nicholas; implementation support provided by AI agents including OpenAI Codex."; wrap: word-wrap; }
+        Button { text: "Project website"; clicked => { root.open-website("https://itsulu.com/Rustrepo"); } }
+        Button { text: "Authoritative Forgejo repository"; clicked => { root.open-website("https://git.itsulu.com/itsulu/Rustrepo-sanitizer"); } }
+        Button { text: "Close"; clicked => { root.close(); } }
+    }
+}
+
+export component MainWindow inherits Window {
+    icon: @image-url("../assets/rustrepo-sanitizer.svg");
+    title: root.app-title;
+    preferred-width: 760px;
+    preferred-height: 620px;
+    min-width: 600px;
+    min-height: 520px;
+    in property <string> status: "Ready to sanitize a repository";
+    in property <string> app-title;
+    in-out property <bool> running: false;
+    in-out property <string> repository-path: ".";
+    in-out property <string> output-path: "";
+    in-out property <bool> output-path-automatic: true;
+    in-out property <string> result-path: "";
+    in-out property <bool> redact-secrets: true;
+    in-out property <bool> fail-on-secret: false;
+    in-out property <string> max-file-size: "10485760";
+    in-out property <string> password-policy-minimum-length: "8";
+    in-out property <bool> password-policy-uppercase: true;
+    in-out property <bool> password-policy-lowercase: true;
+    in-out property <bool> password-policy-number: true;
+    in-out property <bool> password-policy-special: true;
+    in-out property <string> include-glob: "";
+    in-out property <string> exclude-glob: "";
+    in-out property <[string]> include-patterns: [];
+    in-out property <[string]> exclude-patterns: [];
+    in-out property <string> zip-password: "";
+    in property <[string]> compression-options: [];
+    callback sanitize(string, string, bool, bool, int, int, int, bool, bool, bool, string, string, string, string);
+    callback browse();
+    callback browse-output(string, int, int, bool);
+    callback cancel();
+    callback open-result();
+    callback show-help();
+    callback show-settings();
+    callback show-about();
+    callback quit-requested();
+    callback cancel-shortcut();
+    callback archive-changed(int);
+    callback compression-changed(int, int);
+    callback timestamp-changed(bool);
+    callback add-include(string);
+    callback remove-include(string);
+    callback add-exclude(string);
+    callback remove-exclude(string);
+    MenuBar {
+        Menu { title: "File";
+            MenuItem { title: "Open Repository"; shortcut: @keys(Control + O); activated => { root.browse(); } }
+            MenuItem { title: "Select Output Folder"; shortcut: @keys(Control + Shift + O); activated => { root.browse-output(root.repository-path, format.current-index, compression.current-index, timestamp.checked); } }
+            MenuItem { title: "Sanitize"; shortcut: @keys(Control + Return); activated => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
+            MenuItem { title: "Cancel"; shortcut: @keys(Escape); activated => { root.cancel-shortcut(); } }
+            MenuSeparator {}
+            MenuItem { title: "Quit"; shortcut: @keys(Control + Q); activated => { root.quit-requested(); } }
+        }
+        Menu { title: "Help";
+            MenuItem { title: "Help"; shortcut: @keys(F1); activated => { root.show-help(); } }
+            MenuItem { title: "Settings"; shortcut: @keys(Control + ","); activated => { root.show-settings(); } }
+            MenuItem { title: "About"; activated => { root.show-about(); } }
+        }
+    }
+    VerticalBox { padding: 24px; spacing: 14px;
+        Text { text: "Rustrepo Sanitizer"; font-size: 28px; }
+        Text { text: "Create a safe, deterministic AI review bundle."; color: #667085; }
+        Text { text: "Repository"; accessible-label: "Repository label"; }
+        HorizontalLayout { spacing: 8px;
+            repository := HelpfulLineEdit { text <=> root.repository-path; placeholder-text: "Path to a Git repository"; help: "Choose the Git repository to sanitize."; accessible-id: "repository-path"; accessible-label: "Repository path"; }
+            HelpfulButton { text: "Browse…"; help: "Select a repository folder using the system picker."; accessible-id: "browse-repository"; accessible-label: "Browse for repository"; clicked => { root.browse(); } }
+        }
+        Text { text: "Output File"; }
+        HorizontalLayout { spacing: 8px;
+            output := HelpfulLineEdit { text <=> root.output-path; placeholder-text: "Automatic filename"; help: "Leave empty for a repository-root filename, or provide an explicit output path."; accessible-id: "output-path"; accessible-label: "Output file path"; user-edited(_) => { root.output-path-automatic = false; } }
+            HelpfulButton { text: "Browse…"; help: "Select the output folder; the filename is derived automatically."; accessible-id: "browse-output"; accessible-label: "Browse for output folder"; clicked => { root.browse-output(repository.text, format.current-index, compression.current-index, timestamp.checked); } }
+        }
+        untracked := HelpfulCheckBox { text: "Include untracked files"; help: "Include files not currently tracked by Git, subject to safety filters."; accessible-id: "include-untracked"; accessible-label: "Include untracked files"; }
+        dry-run := HelpfulCheckBox { text: "Dry run (preview only)"; help: "Inspect and validate without writing an archive."; accessible-id: "dry-run"; accessible-label: "Dry run"; }
+        timestamp := HelpfulCheckBox { text: "Timestamp output filename"; help: "Add a deterministic timestamp and commit identifier to the generated filename."; checked: true; accessible-id: "timestamp-name"; accessible-label: "Timestamp output filename"; checked-changed(value) => { root.timestamp-changed(value); } }
+        HorizontalLayout { spacing: 12px;
+            Text { text: "Archive"; }
+            format := HelpfulComboBox { model: ["tar", "zip", "7z", "none"]; help: "Choose the archive container used for the sanitized bundle."; accessible-id: "archive-format"; accessible-label: "Archive format"; selection-changed(index) => { root.zip-password = ""; root.archive-changed(index); } }
+            Text { text: "Compression"; }
+            compression := HelpfulComboBox { model: root.compression-options; help: "Choose a compressor compatible with the selected archive."; accessible-id: "compression"; accessible-label: "Compression"; selection-changed(index) => { root.compression-changed(format.current-index, index); } }
+            Text { text: "Report"; }
+            report := HelpfulComboBox { model: ["Markdown", "JSON", "None"]; help: "Choose the optional human-readable or JSON sanitization report."; accessible-id: "report"; accessible-label: "Report format"; }
+        }
+        advanced := HelpfulCheckBox { text: "Advanced options"; help: "Configure redaction, limits, filters, and encryption options."; accessible-id: "advanced-options"; accessible-label: "Advanced options"; }
+        ScrollView { enabled: true; opacity: advanced.checked ? 1 : 0; height: advanced.checked ? 300px : 0px; VerticalBox { spacing: 8px;
+            HelpfulCheckBox { text: "Redact detected secrets"; help: "Replace high-confidence secret values with redaction markers."; checked <=> root.redact-secrets; accessible-label: "Redact secrets"; }
+            HelpfulCheckBox { text: "Fail when secrets are detected"; help: "Stop instead of producing output when a secret is detected."; checked <=> root.fail-on-secret; accessible-label: "Fail on secret"; }
+            Text { text: "Maximum file size (bytes)"; }
+            HelpfulLineEdit { text <=> root.max-file-size; help: "Exclude files larger than this number of bytes."; accessible-label: "Maximum file size"; }
+            Text { text: "Include Glob"; }
+            HorizontalLayout { spacing: 6px;
+                include-choice := ComboBox { model: ["docs/**/*.md", "src/**/*.rs", "tests/**", ".forgejo/**", "target/**", "vendor/**", "*.log"]; accessible-label: "Common include glob patterns"; }
+                include-entry := HelpfulLineEdit { help: "Enter any Git-style glob pattern to include."; placeholder-text: "Custom pattern"; accessible-label: "Custom include glob"; }
+                HelpfulButton { text: "Add"; help: "Add this include pattern to the selected list."; clicked => { root.add-include(include-entry.text == "" ? include-choice.current-value : include-entry.text); } }
+            }
+            for pattern in root.include-patterns: HorizontalLayout { spacing: 6px;
+                Text { text: pattern; accessible-label: "Selected include glob"; }
+                Button { text: "Remove"; accessible-label: "Remove selected include glob"; clicked => { root.remove-include(pattern); } }
+            }
+            Text { text: "Exclude Glob"; }
+            HorizontalLayout { spacing: 6px;
+                exclude-choice := ComboBox { model: ["docs/**", "target/**", "vendor/**", "node_modules/**", ".idea/**", "*.log", "*.tmp"]; accessible-label: "Common exclude glob patterns"; }
+                exclude-entry := HelpfulLineEdit { help: "Enter any Git-style glob pattern to exclude."; placeholder-text: "Custom pattern"; accessible-label: "Custom exclude glob"; }
+                HelpfulButton { text: "Add"; help: "Add this exclude pattern to the selected list."; clicked => { root.add-exclude(exclude-entry.text == "" ? exclude-choice.current-value : exclude-entry.text); } }
+            }
+            for pattern in root.exclude-patterns: HorizontalLayout { spacing: 6px;
+                Text { text: pattern; accessible-label: "Selected exclude glob"; }
+                Button { text: "Remove"; accessible-label: "Remove selected exclude glob"; clicked => { root.remove-exclude(pattern); } }
+            }
+            if format.current-index == 1: VerticalBox {
+                Text { text: "Password (never persisted)"; }
+                HelpfulLineEdit { text <=> root.zip-password; help: "Protect an encryption-capable archive; the password is never persisted or logged."; input-type: InputType.password; accessible-label: "Password"; }
+            }
+        }}
+        Text { text: root.status; accessible-label: root.status; }
+        HelpfulButton { text: "Open output folder"; help: "Open the folder containing the completed output."; enabled: root.result-path != ""; accessible-id: "open-result"; accessible-label: "Open output folder"; clicked => { root.open-result(); } }
+        HorizontalLayout { alignment: end; spacing: 10px;
+            HelpfulButton { text: "Cancel"; help: "Stop the current operation before it scans or writes more files."; enabled: root.running; accessible-label: "Cancel sanitization"; clicked => { root.cancel(); } }
+            HelpfulButton { text: "Sanitize"; help: "Run the shared sanitizer engine with the selected options."; enabled: !root.running; accessible-id: "sanitize"; accessible-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
+        }
+    }
+}

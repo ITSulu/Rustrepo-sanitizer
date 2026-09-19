@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Rustrepo Sanitizer">
+  <title>Rustrepo Sanitizer</title>
+  <path fill="#1f2937" d="M64 6 112 24v35c0 29-19 51-48 63C35 110 16 88 16 59V24z"/>
+  <path fill="#f97316" d="M64 18 98 31v27c0 21-13 38-34 48C43 96 30 79 30 58V31z"/>
+  <path fill="#fff" d="M45 38h22c13 0 21 7 21 18 0 8-4 13-11 16l13 18H76L65 75h-8v15H45zm12 10v17h9c7 0 10-3 10-9s-3-8-10-8z"/>
+</svg>

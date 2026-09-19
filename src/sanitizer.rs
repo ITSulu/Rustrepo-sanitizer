@@ -3,7 +3,8 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command, Stdio},
+    time::Duration,
 };
 
 use anyhow::{bail, Context, Result};
@@ -12,12 +13,16 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tar::{Builder, Header};
 
+pub use crate::security::PasswordPolicy;
 use crate::security::{
     default_exclusion, is_binary, is_kubernetes_secret_manifest, redact_text, safe_archive_path,
+    validate_password,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum ArchiveFormat {
+    #[value(name = "none")]
+    None,
     Tar,
     Zip,
     #[value(name = "7z", alias = "seven-zip")]
@@ -35,6 +40,234 @@ pub enum Compression {
     Lzo,
     Lrzip,
     Xz,
+    Zlib,
+    Brotli,
+    Snappy,
+    Bzip2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArchiveCapability {
+    pub format: ArchiveFormat,
+    pub label: &'static str,
+    pub extension: &'static str,
+    pub password_encryption: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompressionCapability {
+    pub compression: Compression,
+    pub label: &'static str,
+    pub extension: &'static str,
+    pub standalone: bool,
+}
+
+pub const ARCHIVE_CAPABILITIES: &[ArchiveCapability] = &[
+    ArchiveCapability {
+        format: ArchiveFormat::None,
+        label: "None (JSONL stream)",
+        extension: "jsonl",
+        password_encryption: false,
+    },
+    ArchiveCapability {
+        format: ArchiveFormat::Tar,
+        label: "TAR",
+        extension: "tar",
+        password_encryption: false,
+    },
+    ArchiveCapability {
+        format: ArchiveFormat::Zip,
+        label: "ZIP",
+        extension: "zip",
+        password_encryption: true,
+    },
+    ArchiveCapability {
+        format: ArchiveFormat::SevenZip,
+        label: "7z",
+        extension: "7z",
+        password_encryption: false,
+    },
+];
+
+pub const COMPRESSION_CAPABILITIES: &[CompressionCapability] = &[
+    CompressionCapability {
+        compression: Compression::None,
+        label: "None",
+        extension: "",
+        standalone: false,
+    },
+    CompressionCapability {
+        compression: Compression::Gzip,
+        label: "gzip",
+        extension: "gz",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Zstd,
+        label: "zstd",
+        extension: "zst",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Lz4,
+        label: "LZ4",
+        extension: "lz4",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Lzip,
+        label: "lzip",
+        extension: "lz",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Lzma,
+        label: "LZMA",
+        extension: "lzma",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Lzo,
+        label: "LZO",
+        extension: "lzo",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Lrzip,
+        label: "lrzip",
+        extension: "lrz",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Xz,
+        label: "XZ",
+        extension: "xz",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Zlib,
+        label: "zlib",
+        extension: "zz",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Brotli,
+        label: "Brotli",
+        extension: "br",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Snappy,
+        label: "Snappy",
+        extension: "sz",
+        standalone: true,
+    },
+    CompressionCapability {
+        compression: Compression::Bzip2,
+        label: "bzip2",
+        extension: "bz2",
+        standalone: true,
+    },
+];
+
+pub fn archive_capability(format: ArchiveFormat) -> &'static ArchiveCapability {
+    ARCHIVE_CAPABILITIES
+        .iter()
+        .find(|capability| capability.format == format)
+        .expect("all archive formats have capability metadata")
+}
+
+pub fn compression_capability(compression: Compression) -> &'static CompressionCapability {
+    COMPRESSION_CAPABILITIES
+        .iter()
+        .find(|capability| capability.compression == compression)
+        .expect("all compression formats have capability metadata")
+}
+
+pub fn compatible_compressions(format: ArchiveFormat) -> Vec<Compression> {
+    COMPRESSION_CAPABILITIES
+        .iter()
+        .filter_map(|capability| {
+            let compatible = match format {
+                ArchiveFormat::None => matches!(
+                    capability.compression,
+                    Compression::Gzip
+                        | Compression::Zstd
+                        | Compression::Lz4
+                        | Compression::Xz
+                        | Compression::Zlib
+                        | Compression::Brotli
+                        | Compression::Snappy
+                        | Compression::Bzip2
+                ),
+                ArchiveFormat::Tar => matches!(
+                    capability.compression,
+                    Compression::None
+                        | Compression::Gzip
+                        | Compression::Zstd
+                        | Compression::Lz4
+                        | Compression::Lzip
+                        | Compression::Lzma
+                        | Compression::Lzo
+                        | Compression::Lrzip
+                        | Compression::Xz
+                ),
+                ArchiveFormat::Zip => matches!(
+                    capability.compression,
+                    Compression::Gzip | Compression::Zstd
+                ),
+                ArchiveFormat::SevenZip => capability.compression == Compression::None,
+            };
+            compatible.then_some(capability.compression)
+        })
+        .collect()
+}
+
+/// Resolves the zero-based compression selector index used by the GUI against
+/// the same compatibility registry used for validation and CLI output.
+pub fn compression_for_gui_selection(format: ArchiveFormat, index: usize) -> Option<Compression> {
+    compatible_compressions(format).get(index).copied()
+}
+
+pub fn output_extension(format: ArchiveFormat, compression: Compression) -> Result<String> {
+    let valid = compatible_compressions(format).contains(&compression);
+    if !valid {
+        bail!("compression is not valid for the selected archive format")
+    }
+    let archive = archive_capability(format).extension;
+    let compression = compression_capability(compression).extension;
+    Ok(if format == ArchiveFormat::None || archive.is_empty() {
+        compression.to_owned()
+    } else if compression.is_empty()
+        || format == ArchiveFormat::Zip
+        || format == ArchiveFormat::SevenZip
+    {
+        archive.to_owned()
+    } else {
+        format!("{archive}.{compression}")
+    })
+}
+
+/// Adds a user-supplied Git-style glob to a configuration list. Empty values
+/// are rejected, malformed patterns return a validation error, and duplicate
+/// entries are treated as a no-op.
+pub fn add_pattern(patterns: &mut Vec<String>, pattern: &str) -> Result<bool> {
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+        bail!("glob pattern must not be empty")
+    }
+    Glob::new(pattern).with_context(|| format!("invalid glob: {pattern}"))?;
+    if patterns.iter().any(|existing| existing == pattern) {
+        return Ok(false);
+    }
+    patterns.push(pattern.to_owned());
+    Ok(true)
+}
+
+pub fn remove_pattern(patterns: &mut Vec<String>, pattern: &str) -> bool {
+    let before = patterns.len();
+    patterns.retain(|existing| existing != pattern);
+    patterns.len() != before
 }
 
 /// Prints the compatibility matrix from the same capability declarations used
@@ -42,6 +275,8 @@ pub enum Compression {
 /// that a raw stream is a valid archive.
 pub fn print_formats() {
     println!("format\textension\tbackend\tpassword\tdependency");
+    println!("none+gzip/none+zstd\t.gz/.zst\tinternal Rust JSONL stream\tno\tavailable");
+    println!("none+lz4-frame/xz/zlib/brotli/snappy/bzip2\tcodec-specific\tcompcol 0.6.11 JSONL stream\tno\tavailable");
     println!("tar.gz\t.tar.gz\tinternal Rust\tno\tavailable");
     println!("tar.zst\t.tar.zst\tinternal Rust\tno\tavailable");
     println!("tar.lz4/tar.lz/tar.lzma/tar.lzo/tar.lrz/tar.xz\tstream\texternal fallback\tno\tdetected per request");
@@ -76,6 +311,31 @@ fn command_available(name: &str) -> bool {
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
         .any(|dir| dir.join(name).is_file())
 }
+
+fn wait_for_child_with_cancellation<C: Fn() -> bool>(
+    mut child: Child,
+    cancelled: C,
+) -> Result<std::process::ExitStatus> {
+    loop {
+        if cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("sanitization cancelled");
+        }
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+fn ensure_external_compressor_available(name: &str) -> Result<()> {
+    if !command_available(name) {
+        bail!("required external compressor '{name}' was not found in PATH");
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReportFormat {
     Markdown,
@@ -96,16 +356,58 @@ pub struct Config {
     pub fail_on_secret: bool,
     pub dry_run: bool,
     pub password: Option<String>,
+    pub password_policy: PasswordPolicy,
     pub password_file: Option<PathBuf>,
     pub verbose: bool,
     pub quiet: bool,
 }
+#[derive(Debug)]
 pub struct Summary {
     pub included: usize,
     pub excluded: usize,
     pub redactions: usize,
     pub dry_run: bool,
     pub quiet: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProgressEvent {
+    Scanning { path: String, examined: usize },
+    Writing { included: usize },
+    Finished,
+}
+
+pub fn run(config: Config) -> Result<Summary> {
+    run_with_progress(config, |_| {}, || false)
+}
+
+pub fn run_with_progress<F, C>(config: Config, mut progress: F, cancelled: C) -> Result<Summary>
+where
+    F: FnMut(ProgressEvent),
+    C: Fn() -> bool,
+{
+    run_inner(config, &mut progress, &cancelled)
+}
+
+/// Validate selected capabilities before reading repository contents.
+pub fn validate_config(config: &Config) -> Result<()> {
+    let _ = output_extension(config.format, config.compression)?;
+    if config.password.is_some() && config.format != ArchiveFormat::Zip {
+        bail!("password protection is supported only for ZIP AES output")
+    }
+    if config.password.as_deref() == Some("") {
+        bail!("password must not be empty")
+    }
+    if let Some(password) = config.password.as_deref() {
+        config
+            .password_policy
+            .validate()
+            .map_err(|error| anyhow::anyhow!(error))?;
+        if let Err(unmet) = validate_password(password, config.password_policy) {
+            bail!("password does not meet policy: {}", unmet.join(", "))
+        }
+    }
+    Ok(())
 }
 
 /// Computes the deterministic output name used when `--output` is omitted.
@@ -134,35 +436,18 @@ pub fn default_output_path(
         .unwrap_or_else(|| "repository".to_owned());
     let head =
         git_one(&root, &["rev-parse", "--short=7", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-    let suffix = match (format, compression) {
-        (ArchiveFormat::Tar, Compression::None) => "tar",
-        (ArchiveFormat::Tar, Compression::Gzip) => "tar.gz",
-        (ArchiveFormat::Tar, Compression::Zstd) => "tar.zst",
-        (ArchiveFormat::Tar, Compression::Lz4) => "tar.lz4",
-        (ArchiveFormat::Tar, Compression::Lzip) => "tar.lz",
-        (ArchiveFormat::Tar, Compression::Lzma) => "tar.lzma",
-        (ArchiveFormat::Tar, Compression::Lzo) => "tar.lzo",
-        (ArchiveFormat::Tar, Compression::Lrzip) => "tar.lrz",
-        (ArchiveFormat::Tar, Compression::Xz) => "tar.xz",
-        (ArchiveFormat::Zip, Compression::Gzip) | (ArchiveFormat::Zip, Compression::Zstd) => "zip",
-        (ArchiveFormat::SevenZip, _) => "7z",
-        _ => bail!("compression is not valid for the selected archive format"),
-    };
+    let suffix = output_extension(format, compression)?;
     let stem = if timestamp_name {
         let now = chrono::Local::now();
         format!(
-            "{name}-{}-{}-{}-sanitized",
+            "{}-{}-{name}-{head}-sanitized",
             now.format("%Y-%b-%d"),
-            now.format("%H-%M"),
-            head
+            now.format("%H-%M")
         )
     } else {
         format!("{name}-{head}-sanitized")
     };
-    Ok(root
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(format!("{stem}.{suffix}")))
+    Ok(root.join(format!("{stem}.{suffix}")))
 }
 #[derive(Serialize)]
 struct Manifest {
@@ -174,7 +459,7 @@ struct Manifest {
     exclusions: Vec<Exclusion>,
     redactions: usize,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct ManifestFile {
     path: String,
     sha256: String,
@@ -187,7 +472,12 @@ struct Exclusion {
     reason: String,
 }
 
-pub fn run(config: Config) -> Result<Summary> {
+fn run_inner<F, C>(config: Config, progress: &mut F, cancelled: &C) -> Result<Summary>
+where
+    F: FnMut(ProgressEvent),
+    C: Fn() -> bool,
+{
+    validate_config(&config)?;
     let root = fs::canonicalize(&config.repository).context("repository path does not exist")?;
     if config.password.is_some() && config.format != ArchiveFormat::Zip {
         bail!("password protection is supported only for ZIP AES output; TAR compression has no encryption");
@@ -212,7 +502,17 @@ pub fn run(config: Config) -> Result<Summary> {
     let mut exclusions = Vec::new();
     let mut files = Vec::new();
     let mut redactions = 0usize;
-    for relative in git_files(&root, config.include_untracked)? {
+    for (examined, relative) in git_files(&root, config.include_untracked)?
+        .into_iter()
+        .enumerate()
+    {
+        if cancelled() {
+            bail!("sanitization cancelled")
+        }
+        progress(ProgressEvent::Scanning {
+            path: relative.display().to_string(),
+            examined: examined + 1,
+        });
         let path = root.join(&relative);
         let display = match safe_archive_path(&relative) {
             Ok(path) => path,
@@ -299,6 +599,12 @@ pub fn run(config: Config) -> Result<Summary> {
         ));
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
+    progress(ProgressEvent::Writing {
+        included: files.len(),
+    });
+    if cancelled() {
+        bail!("sanitization cancelled")
+    }
     for (_, content, entry) in &mut files {
         entry.output_bytes = content.len() as u64;
     }
@@ -326,7 +632,7 @@ pub fn run(config: Config) -> Result<Summary> {
     };
     let history = git_history(&root, config.redact)?;
     if !config.dry_run {
-        write_archive(
+        write_archive_with_cancellation(
             &output,
             config.format,
             config.compression,
@@ -335,8 +641,10 @@ pub fn run(config: Config) -> Result<Summary> {
             &history,
             config.password.as_deref(),
             config.report,
+            cancelled,
         )?;
     }
+    progress(ProgressEvent::Finished);
     Ok(Summary {
         included: files.len(),
         excluded: manifest.exclusions.len(),
@@ -350,17 +658,24 @@ fn git_history(root: &Path, redact: bool) -> Result<String> {
     // Git's topo-order traversal is the ordering contract: parents precede
     // children in reverse chronology, while Git resolves equivalent ties
     // consistently for a fixed set of refs.
-    let out = Command::new("git")
-        .current_dir(root)
-        .args([
-            "log",
-            "--all",
-            "--topo-order",
-            "--reverse",
-            "--format=%H%x09%h%x09%s",
-        ])
-        .output()
-        .context("reading git history")?;
+    // `--all` fails the entire traversal when a repository contains a stale
+    // or malformed ref.  Enumerate refs first and retain only refs that
+    // resolve to commits, so one broken remote-tracking ref cannot hide the
+    // valid history of an otherwise usable repository.
+    let refs = git_commit_refs(root)?;
+    let mut command = Command::new("git");
+    command.current_dir(root).args([
+        "log",
+        "--topo-order",
+        "--reverse",
+        "--format=%H%x09%h%x09%s",
+    ]);
+    if refs.is_empty() {
+        command.arg("HEAD");
+    } else {
+        command.args(refs);
+    }
+    let out = command.output().context("reading git history")?;
     if !out.status.success() {
         bail!("git history failed (repository may be malformed or shallow)");
     }
@@ -394,6 +709,35 @@ fn git_history(root: &Path, redact: bool) -> Result<String> {
     Ok(result)
 }
 
+fn git_commit_refs(root: &Path) -> Result<Vec<String>> {
+    let refs = Command::new("git")
+        .current_dir(root)
+        .args(["for-each-ref", "--format=%(refname)"])
+        .output()
+        .context("enumerating Git refs")?;
+    if !refs.status.success() {
+        bail!("Git ref enumeration failed");
+    }
+
+    let mut valid = Vec::new();
+    for name in String::from_utf8_lossy(&refs.stdout)
+        .lines()
+        .filter(|name| !name.is_empty())
+    {
+        let resolves = Command::new("git")
+            .current_dir(root)
+            .args(["rev-parse", "--verify"])
+            .arg(format!("{name}^{{commit}}"))
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if resolves {
+            valid.push(name.to_owned());
+        }
+    }
+    Ok(valid)
+}
+
 fn absolute(path: &Path) -> Result<PathBuf> {
     if path.is_absolute() {
         Ok(path.to_owned())
@@ -411,7 +755,7 @@ fn patterns(raw: &[String]) -> Result<GlobSet> {
 fn git_files(root: &Path, untracked: bool) -> Result<Vec<PathBuf>> {
     let mut args = vec!["ls-files", "-z"];
     if untracked {
-        args.extend(["--others", "--exclude-standard"]);
+        args.extend(["--cached", "--others", "--exclude-standard"]);
     }
     let output = Command::new("git")
         .current_dir(root)
@@ -421,12 +765,15 @@ fn git_files(root: &Path, untracked: bool) -> Result<Vec<PathBuf>> {
     if !output.status.success() {
         bail!("git ls-files failed");
     }
-    Ok(output
+    let mut files = output
         .stdout
         .split(|b| *b == 0)
         .filter(|x| !x.is_empty())
         .map(|x| PathBuf::from(String::from_utf8_lossy(x).into_owned()))
-        .collect())
+        .collect::<Vec<_>>();
+    files.sort();
+    files.dedup();
+    Ok(files)
 }
 fn git_one(root: &Path, args: &[&str]) -> Option<String> {
     let x = Command::new("git")
@@ -471,6 +818,80 @@ fn append(builder: &mut Builder<Box<dyn Write>>, path: &str, content: &[u8]) -> 
     builder.append_data(&mut header, path, content)?;
     Ok(())
 }
+
+/// Writes the archive-none representation. Each line is a self-describing
+/// JSON record, so multiple sanitized files are never ambiguous concatenated
+/// bytes. Text content, paths, manifest, and history can be reconstructed in
+/// order from the stream.
+fn write_jsonl_stream(
+    output: &Path,
+    compression: Compression,
+    files: &[(String, Vec<u8>, ManifestFile)],
+    manifest: &Manifest,
+    history: &str,
+    report: ReportFormat,
+) -> Result<()> {
+    let temporary = temporary_path(output);
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .with_context(|| format!("creating {}", temporary.display()))?;
+    let mut writer: Box<dyn Write> = match compression {
+        Compression::Gzip => Box::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::default(),
+        )),
+        Compression::Zstd => Box::new(zstd::stream::write::Encoder::new(file, 3)?.auto_finish()),
+        compression => {
+            let name = match compression {
+                Compression::Lz4 => "lz4-frame",
+                Compression::Xz => "xz",
+                Compression::Zlib => "zlib",
+                Compression::Brotli => "brotli",
+                Compression::Snappy => "snappy",
+                Compression::Bzip2 => "bzip2",
+                _ => bail!("Archive=none does not support this stream compression"),
+            };
+            let encoder = compcol::factory::encoder_by_name(name)
+                .ok_or_else(|| anyhow::anyhow!("compcol encoder is unavailable: {name}"))?;
+            Box::new(compcol::io::EncoderWriter::new(file, encoder))
+        }
+    };
+    let result = (|| -> Result<()> {
+        let mut write_record = |record: serde_json::Value| -> Result<()> {
+            serde_json::to_writer(&mut writer, &record)?;
+            writer.write_all(b"\n")?;
+            Ok(())
+        };
+        write_record(serde_json::json!({ "type": "manifest", "value": manifest }))?;
+        write_record(serde_json::json!({ "type": "history", "value": history }))?;
+        for (path, content, _) in files {
+            let text = String::from_utf8_lossy(content);
+            write_record(serde_json::json!({
+                "type": "file",
+                "path": path,
+                "content": text,
+            }))?;
+        }
+        if report != ReportFormat::None {
+            write_record(serde_json::json!({
+                "type": "report",
+                "format": if report == ReportFormat::Json { "json" } else { "markdown" },
+                "value": manifest,
+            }))?;
+        }
+        writer.flush()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+        return result;
+    }
+    fs::rename(temporary, output).context("installing JSONL stream output")?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn write_archive(
     output: &Path,
@@ -482,8 +903,36 @@ fn write_archive(
     password: Option<&str>,
     report: ReportFormat,
 ) -> Result<()> {
+    write_archive_with_cancellation(
+        output,
+        format,
+        compression,
+        files,
+        manifest,
+        history,
+        password,
+        report,
+        || false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_archive_with_cancellation<C: Fn() -> bool>(
+    output: &Path,
+    format: ArchiveFormat,
+    compression: Compression,
+    files: &[(String, Vec<u8>, ManifestFile)],
+    manifest: &Manifest,
+    history: &str,
+    password: Option<&str>,
+    report: ReportFormat,
+    cancelled: C,
+) -> Result<()> {
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
+    }
+    if format == ArchiveFormat::None {
+        return write_jsonl_stream(output, compression, files, manifest, history, report);
     }
     if format == ArchiveFormat::Zip {
         return write_zip(
@@ -511,6 +960,7 @@ fn write_archive(
             history,
             password,
             report,
+            &cancelled,
         );
     }
     let temporary = temporary_path(output);
@@ -532,12 +982,19 @@ fn write_archive(
             unreachable!("non-TAR format handled above")
         }
         (ArchiveFormat::Tar, _) => unreachable!("external codec handled above"),
+        (ArchiveFormat::None, _) => unreachable!("JSONL stream handled above"),
     };
     let result = (|| -> Result<()> {
         let mut tar = Builder::new(writer);
+        if cancelled() {
+            bail!("sanitization cancelled");
+        }
         append(&mut tar, ".git/COMMIT-HISTORY.txt", history.as_bytes())?;
         let mut sums = BTreeMap::new();
         for (name, data, entry) in files {
+            if cancelled() {
+                bail!("sanitization cancelled");
+            }
             append(&mut tar, name, data)?;
             sums.insert(name.clone(), entry.sha256.clone());
         }
@@ -645,6 +1102,7 @@ fn write_seven_zip(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_external_tar(
     output: &Path,
     compression: Compression,
@@ -653,10 +1111,21 @@ fn write_external_tar(
     history: &str,
     password: Option<&str>,
     report: ReportFormat,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
     if password.is_some() {
         bail!("password protection is unavailable for external compression tools");
     }
+    let (tool, args): (&str, &[&str]) = match compression {
+        Compression::Lz4 => ("lz4", &["-f"]),
+        Compression::Lzip => ("lzip", &["-c"]),
+        Compression::Lzma => ("lzma", &["-c"]),
+        Compression::Lzo => ("lzop", &["-c"]),
+        Compression::Lrzip => ("lrzip", &["-o"]),
+        Compression::Xz => ("xz", &["-c"]),
+        _ => unreachable!("external compressor requested only for external codec"),
+    };
+    ensure_external_compressor_available(tool)?;
     let tar_path = temporary_path(output).with_extension("tar");
     write_archive(
         &tar_path,
@@ -669,36 +1138,27 @@ fn write_external_tar(
         report,
     )?;
     let temporary = temporary_path(output);
-    let (tool, args): (&str, &[&str]) = match compression {
-        Compression::Lz4 => ("lz4", &["-f"]),
-        Compression::Lzip => ("lzip", &["-c"]),
-        Compression::Lzma => ("lzma", &["-c"]),
-        Compression::Lzo => ("lzop", &["-c"]),
-        Compression::Lrzip => ("lrzip", &["-o"]),
-        Compression::Xz => ("xz", &["-c"]),
-        _ => unreachable!("external compressor requested only for external codec"),
-    };
-    if !command_available(tool) {
-        bail!("required external compressor '{tool}' was not found in PATH");
-    }
-    let status = if tool == "lrzip" {
+    let child = if tool == "lrzip" {
         Command::new(tool)
             .args(["-q", "-o"])
             .arg(&temporary)
             .arg(&tar_path)
-            .status()
+            .spawn()
             .with_context(|| format!("running {tool}"))?
     } else {
         let input = File::open(&tar_path)?;
         let output_file = File::create(&temporary)?;
         Command::new(tool)
             .args(args)
-            .stdin(input)
-            .stdout(output_file)
-            .status()
+            .stdin(Stdio::from(input))
+            .stdout(Stdio::from(output_file))
+            .spawn()
             .with_context(|| format!("running {tool}"))?
     };
+    let status_result = wait_for_child_with_cancellation(child, cancelled);
     let _ = fs::remove_file(&tar_path);
+    let _ = fs::remove_file(&temporary);
+    let status = status_result?;
     if !status.success() {
         let _ = fs::remove_file(&temporary);
         bail!("{tool} failed with status {status}");
@@ -746,13 +1206,33 @@ fn write_zip(
         }
         add("manifest.json", &serde_json::to_vec_pretty(manifest)?)?;
         if report != ReportFormat::None {
+            let report_data = if report == ReportFormat::Json {
+                serde_json::to_vec_pretty(manifest)?
+            } else {
+                format!(
+                    "# Sanitization Report\n\n- Repository: `{}`\n- Branch: `{}`\n- HEAD: `{}`\n- Included files: {}\n- Excluded files: {}\n- Redactions: {}\n\n## Exclusions\n\n{}",
+                    manifest.repository,
+                    manifest.branch,
+                    manifest.head,
+                    manifest.files.len(),
+                    manifest.exclusions.len(),
+                    manifest.redactions,
+                    manifest
+                        .exclusions
+                        .iter()
+                        .map(|e| format!("- `{}`: {}", e.path, e.reason))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+                .into_bytes()
+            };
             add(
                 if report == ReportFormat::Json {
                     "SANITIZATION-REPORT.json"
                 } else {
                     "SANITIZATION-REPORT.md"
                 },
-                &serde_json::to_vec_pretty(manifest)?,
+                &report_data,
             )?;
         }
         zip.finish().context("finishing ZIP")?;
@@ -811,6 +1291,127 @@ mod tests {
             .unwrap();
         d
     }
+
+    #[test]
+    fn missing_external_compressor_is_reported_before_staging() {
+        let error = ensure_external_compressor_available(
+            "rustrepo-sanitizer-test-compressor-that-does-not-exist",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("was not found in PATH"));
+    }
+
+    #[test]
+    fn cancellation_during_archive_writing_removes_partial_output() {
+        let d = tempdir().unwrap();
+        let output = d.path().join("cancelled.tar");
+        let files = (0..32)
+            .map(|index| {
+                (
+                    format!("file-{index}.txt"),
+                    vec![b'x'; 4096],
+                    ManifestFile {
+                        path: format!("file-{index}.txt"),
+                        sha256: "hash".to_owned(),
+                        original_bytes: 4096,
+                        output_bytes: 4096,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let manifest = Manifest {
+            version: "0.4.0".to_owned(),
+            repository: "test".to_owned(),
+            branch: "main".to_owned(),
+            head: "head".to_owned(),
+            files: files.iter().map(|(_, _, file)| file.clone()).collect(),
+            exclusions: vec![],
+            redactions: 0,
+        };
+        let error = write_archive_with_cancellation(
+            &output,
+            ArchiveFormat::Tar,
+            Compression::None,
+            &files,
+            &manifest,
+            "history",
+            None,
+            ReportFormat::None,
+            || true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert!(!output.exists());
+        assert!(fs::read_dir(d.path()).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn external_child_cancellation_terminates_process() {
+        let child = Command::new("sh").args(["-c", "sleep 30"]).spawn().unwrap();
+        let result = wait_for_child_with_cancellation(child, || true);
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn external_compressor_cancellation_removes_staging_files() {
+        if Command::new("xz").arg("--version").output().is_err() {
+            return;
+        }
+        let d = tempdir().unwrap();
+        let output = d.path().join("cancelled.tar.xz");
+        let files = vec![(
+            "file.txt".to_owned(),
+            vec![b'x'; 4096],
+            ManifestFile {
+                path: "file.txt".to_owned(),
+                sha256: "hash".to_owned(),
+                original_bytes: 4096,
+                output_bytes: 4096,
+            },
+        )];
+        let manifest = Manifest {
+            version: "0.4.0".to_owned(),
+            repository: "test".to_owned(),
+            branch: "main".to_owned(),
+            head: "head".to_owned(),
+            files: files.iter().map(|(_, _, file)| file.clone()).collect(),
+            exclusions: vec![],
+            redactions: 0,
+        };
+        let error = write_external_tar(
+            &output,
+            Compression::Xz,
+            &files,
+            &manifest,
+            "history",
+            None,
+            ReportFormat::None,
+            &|| true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert!(!output.exists());
+        assert!(fs::read_dir(d.path()).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn gui_compression_selection_follows_authoritative_capabilities() {
+        for format in [
+            ArchiveFormat::None,
+            ArchiveFormat::Tar,
+            ArchiveFormat::Zip,
+            ArchiveFormat::SevenZip,
+        ] {
+            let choices = compatible_compressions(format);
+            for (index, expected) in choices.iter().enumerate() {
+                assert_eq!(
+                    compression_for_gui_selection(format, index),
+                    Some(*expected)
+                );
+            }
+            assert_eq!(compression_for_gui_selection(format, choices.len()), None);
+        }
+    }
     #[test]
     fn redacts_value_not_reference() {
         let redacted = redact_text("TOKEN=not-a-real-secret\nsecretKeyRef: app-secret\n");
@@ -841,7 +1442,385 @@ mod tests {
         let stable_name = stable.file_name().unwrap().to_string_lossy();
         assert!(stable_name.ends_with("-sanitized.tar.zst"));
         assert!(!stable_name.contains("-202"));
+        assert_eq!(stable.parent().unwrap(), d.path());
     }
+
+    #[test]
+    fn timestamped_output_name_starts_with_timestamp_before_repository_name() {
+        let d = repo();
+        let path =
+            default_output_path(d.path(), ArchiveFormat::Zip, Compression::Gzip, true).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy();
+        let timestamp = name
+            .as_bytes()
+            .get(0..18)
+            .is_some_and(|prefix| prefix[4] == b'-' && prefix[8] == b'-' && prefix[11] == b'-');
+        assert!(timestamp, "timestamp must be first: {name}");
+        assert!(name.ends_with("-sanitized.zip"));
+        let head = git_one(d.path(), &["rev-parse", "--short=7", "HEAD"]).unwrap();
+        assert!(name.contains(&format!("-{head}-sanitized.zip")));
+
+        let stable =
+            default_output_path(d.path(), ArchiveFormat::Zip, Compression::Gzip, false).unwrap();
+        let stable_name = stable.file_name().unwrap().to_string_lossy();
+        assert_ne!(stable_name.as_bytes().get(4), Some(&b'-'));
+        assert!(stable_name.ends_with("-sanitized.zip"));
+    }
+
+    #[test]
+    fn include_untracked_unions_eligible_tracked_and_untracked_files() {
+        let d = repo();
+        fs::write(d.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        Command::new("git")
+            .args(["add", ".gitignore"])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args([
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "add ignore rules",
+            ])
+            .current_dir(d.path())
+            .status()
+            .unwrap();
+        fs::write(d.path().join("a.txt"), "modified\n").unwrap();
+        fs::write(d.path().join("untracked.txt"), "new\n").unwrap();
+        fs::write(d.path().join("ignored.txt"), "ignored\n").unwrap();
+
+        let files = git_files(d.path(), true).unwrap();
+        assert_eq!(
+            files,
+            vec![
+                PathBuf::from(".gitignore"),
+                PathBuf::from("a.txt"),
+                PathBuf::from("ref.yaml"),
+                PathBuf::from("untracked.txt"),
+            ]
+        );
+    }
+
+    #[test]
+    fn capability_matrix_has_expected_compatibility_and_extensions() {
+        assert_eq!(
+            output_extension(ArchiveFormat::Tar, Compression::Gzip).unwrap(),
+            "tar.gz"
+        );
+        assert_eq!(
+            output_extension(ArchiveFormat::Tar, Compression::Xz).unwrap(),
+            "tar.xz"
+        );
+        assert_eq!(
+            output_extension(ArchiveFormat::Zip, Compression::Zstd).unwrap(),
+            "zip"
+        );
+        assert_eq!(
+            output_extension(ArchiveFormat::SevenZip, Compression::None).unwrap(),
+            "7z"
+        );
+        assert!(output_extension(ArchiveFormat::Zip, Compression::Xz).is_err());
+        assert_eq!(
+            compatible_compressions(ArchiveFormat::Zip),
+            vec![Compression::Gzip, Compression::Zstd]
+        );
+        assert_eq!(
+            compatible_compressions(ArchiveFormat::SevenZip),
+            vec![Compression::None]
+        );
+        assert!(compatible_compressions(ArchiveFormat::None).contains(&Compression::Brotli));
+        assert_eq!(
+            output_extension(ArchiveFormat::None, Compression::Bzip2).unwrap(),
+            "bz2"
+        );
+    }
+
+    #[test]
+    fn compcol_exposed_stream_encoders_are_available() {
+        for name in ["lz4-frame", "xz", "zlib", "brotli", "snappy", "bzip2"] {
+            assert!(
+                compcol::factory::encoder_by_name(name).is_some(),
+                "compcol encoder must be available: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn compcol_exposed_streams_round_trip_through_authoritative_decoders() {
+        use std::io::{Cursor, Read, Write};
+
+        let input = b"Rustrepo Sanitizer compcol interoperability test\n";
+        for name in ["lz4-frame", "xz", "zlib", "brotli", "snappy", "bzip2"] {
+            let encoder = compcol::factory::encoder_by_name(name).unwrap();
+            let mut writer = compcol::io::EncoderWriter::new(Vec::new(), encoder);
+            writer.write_all(input).unwrap();
+            let encoded = writer.finish().unwrap();
+            let decoder = compcol::factory::decoder_by_name(name).unwrap();
+            let mut reader = compcol::io::DecoderReader::new(Cursor::new(encoded), decoder);
+            let mut decoded = Vec::new();
+            reader.read_to_end(&mut decoded).unwrap();
+            assert_eq!(decoded, input, "compcol round trip failed for {name}");
+        }
+    }
+
+    #[test]
+    fn compatibility_matrix_is_exhaustive_for_every_registered_codec() {
+        for archive in [
+            ArchiveFormat::None,
+            ArchiveFormat::Tar,
+            ArchiveFormat::Zip,
+            ArchiveFormat::SevenZip,
+        ] {
+            for capability in COMPRESSION_CAPABILITIES {
+                let compatible = compatible_compressions(archive).contains(&capability.compression);
+                let extension = output_extension(archive, capability.compression);
+                assert_eq!(
+                    compatible,
+                    extension.is_ok(),
+                    "matrix mismatch for {archive:?}/{:?}",
+                    capability.compression
+                );
+                if compatible {
+                    assert!(!extension.unwrap().is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_supported_capability_has_its_declared_output_extension() {
+        for archive in [
+            ArchiveFormat::None,
+            ArchiveFormat::Tar,
+            ArchiveFormat::Zip,
+            ArchiveFormat::SevenZip,
+        ] {
+            for capability in COMPRESSION_CAPABILITIES {
+                if compatible_compressions(archive).contains(&capability.compression) {
+                    let expected = output_extension(archive, capability.compression).unwrap();
+                    assert!(!expected.is_empty());
+                    if archive == ArchiveFormat::Tar && capability.standalone {
+                        assert!(expected.starts_with("tar."));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pattern_lists_validate_deduplicate_and_remove() {
+        let mut patterns = Vec::new();
+        assert!(add_pattern(&mut patterns, "  docs/**/*.md ").unwrap());
+        assert!(!add_pattern(&mut patterns, "docs/**/*.md").unwrap());
+        assert!(add_pattern(&mut patterns, "tests/**").unwrap());
+        assert_eq!(patterns, vec!["docs/**/*.md", "tests/**"]);
+        assert!(remove_pattern(&mut patterns, "docs/**/*.md"));
+        assert!(!remove_pattern(&mut patterns, "missing/**"));
+        assert!(add_pattern(&mut patterns, "[").is_err());
+        assert!(add_pattern(&mut patterns, " ").is_err());
+    }
+
+    #[test]
+    fn built_in_globs_cover_nested_extensions_dotfiles_and_interactions() {
+        let include_presets = [
+            ("docs/**/*.md", "docs/guide/README.md"),
+            ("src/**/*.rs", "src/nested/module.rs"),
+            ("tests/**", "tests/fixtures/input.json"),
+            (".forgejo/**", ".forgejo/workflows/ci.yml"),
+            ("target/**", "target/debug/app"),
+            ("vendor/**", "vendor/lib/source.c"),
+            ("*.log", "build.log"),
+        ];
+        for (glob, path) in include_presets {
+            assert!(patterns(&[glob.to_owned()]).unwrap().is_match(path));
+        }
+        let exclude_presets = [
+            ("docs/**", "docs/guide.md"),
+            ("target/**", "target/debug/app"),
+            ("vendor/**", "vendor/lib/source.c"),
+            ("node_modules/**", "node_modules/pkg/index.js"),
+            (".idea/**", ".idea/workspace.xml"),
+            ("*.log", "build.log"),
+            ("*.tmp", "scratch.tmp"),
+        ];
+        for (glob, path) in exclude_presets {
+            assert!(patterns(&[glob.to_owned()]).unwrap().is_match(path));
+        }
+        let include = patterns(&["**".to_owned()]).unwrap();
+        let exclude = patterns(&["*.log".to_owned(), "target/**".to_owned()]).unwrap();
+        for path in [".env", "src/main.rs", "nested/docs/readme.md"] {
+            assert!(include.is_match(path));
+            assert!(!exclude.is_match(path));
+        }
+        for path in ["build.log", "target/debug/app"] {
+            assert!(exclude.is_match(path));
+        }
+    }
+
+    #[test]
+    fn archive_none_is_a_reversible_jsonl_stream() {
+        let d = repo();
+        let output = d.path().join("bundle.gz");
+        run(Config {
+            repository: d.path().into(),
+            output: output.clone(),
+            format: ArchiveFormat::None,
+            compression: Compression::Gzip,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 100_000,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: false,
+            password: None,
+            password_policy: PasswordPolicy::default(),
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        })
+        .unwrap();
+        let bytes = fs::read(output).unwrap();
+        let mut decoder = flate2::read::GzDecoder::new(&bytes[..]);
+        let mut text = String::new();
+        decoder.read_to_string(&mut text).unwrap();
+        let records: Vec<serde_json::Value> = text
+            .lines()
+            .map(serde_json::from_str)
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert!(records.iter().any(|record| record["type"] == "manifest"));
+        assert!(records.iter().any(|record| record["type"] == "history"));
+        assert!(records.iter().any(|record| record["type"] == "file"));
+        assert!(records
+            .iter()
+            .all(|record| record["path"].is_null() || record["path"].is_string()));
+    }
+
+    #[test]
+    fn zip_markdown_report_is_markdown_and_json_report_is_json() {
+        let d = repo();
+        for (report, name, expected) in [
+            (
+                ReportFormat::Markdown,
+                "SANITIZATION-REPORT.md",
+                "# Sanitization Report",
+            ),
+            (ReportFormat::Json, "SANITIZATION-REPORT.json", "\"files\""),
+        ] {
+            let output = d.path().join(format!("{}.zip", name));
+            run(Config {
+                repository: d.path().into(),
+                output: output.clone(),
+                format: ArchiveFormat::Zip,
+                compression: Compression::Gzip,
+                report,
+                include_untracked: false,
+                max_file_size: 100_000,
+                excludes: vec![],
+                includes: vec![],
+                redact: true,
+                fail_on_secret: false,
+                dry_run: false,
+                password: None,
+                password_policy: PasswordPolicy::default(),
+                password_file: None,
+                verbose: false,
+                quiet: true,
+            })
+            .unwrap();
+            let file = fs::File::open(output).unwrap();
+            let mut archive = zip::ZipArchive::new(file).unwrap();
+            let mut report_file = archive.by_name(name).unwrap();
+            let mut contents = String::new();
+            report_file.read_to_string(&mut contents).unwrap();
+            assert!(contents.contains(expected));
+            if report == ReportFormat::Markdown {
+                assert!(!contents.trim_start().starts_with('{'));
+            } else {
+                serde_json::from_str::<serde_json::Value>(&contents).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn zip_password_produces_aes_encrypted_readable_output() {
+        let d = repo();
+        let output = d.path().join("encrypted.zip");
+        run(Config {
+            repository: d.path().into(),
+            output: output.clone(),
+            format: ArchiveFormat::Zip,
+            compression: Compression::Gzip,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 100_000,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: false,
+            password: Some("ValidPass1!".to_owned()),
+            password_policy: PasswordPolicy::default(),
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        })
+        .unwrap();
+
+        let file = fs::File::open(&output).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("a.txt").is_err());
+        let mut member = archive.by_name_decrypt("a.txt", b"ValidPass1!").unwrap();
+        let mut contents = String::new();
+        member.read_to_string(&mut contents).unwrap();
+        assert!(contents.contains("hello"));
+    }
+
+    #[test]
+    fn archive_none_compcol_streams_write_nonempty_outputs() {
+        let d = repo();
+        for (index, compression) in [
+            Compression::Lz4,
+            Compression::Xz,
+            Compression::Zlib,
+            Compression::Brotli,
+            Compression::Snappy,
+            Compression::Bzip2,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let output = d.path().join(format!("bundle-{index}"));
+            run(Config {
+                repository: d.path().into(),
+                output: output.clone(),
+                format: ArchiveFormat::None,
+                compression,
+                report: ReportFormat::None,
+                include_untracked: false,
+                max_file_size: 100_000,
+                excludes: vec![],
+                includes: vec![],
+                redact: true,
+                fail_on_secret: false,
+                dry_run: false,
+                password: None,
+                password_policy: PasswordPolicy::default(),
+                password_file: None,
+                verbose: false,
+                quiet: true,
+            })
+            .unwrap();
+            assert!(fs::metadata(output).unwrap().len() > 0);
+        }
+    }
+
     #[test]
     fn archive_has_no_secret() {
         let d = repo();
@@ -860,6 +1839,7 @@ mod tests {
             fail_on_secret: false,
             dry_run: false,
             password: None,
+            password_policy: PasswordPolicy::default(),
             password_file: None,
             verbose: false,
             quiet: true,
@@ -998,9 +1978,178 @@ mod tests {
         assert!(!history.contains("refs/") && !history.contains("objects/"));
     }
 
+    #[test]
+    fn history_ignores_broken_refs_but_keeps_valid_history() {
+        let d = repo();
+        let broken = d.path().join(".git/refs/remotes/broken");
+        fs::create_dir_all(broken.parent().unwrap()).unwrap();
+        fs::write(&broken, "0000000000000000000000000000000000000000\n").unwrap();
+
+        let history = git_history(d.path(), true).unwrap();
+        assert_eq!(history.lines().count(), 1);
+        assert!(history.contains("initial"));
+    }
+
     fn git_config(path: &Path) {
         git(path, &["config", "user.name", "Test"]);
         git(path, &["config", "user.email", "test@example.invalid"]);
+    }
+
+    #[test]
+    fn rejects_invalid_combinations_before_execution() {
+        let config = Config {
+            repository: PathBuf::from("."),
+            output: PathBuf::from("out.zip"),
+            format: ArchiveFormat::Zip,
+            compression: Compression::None,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 1,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: true,
+            password: None,
+            password_policy: PasswordPolicy::default(),
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        };
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn configured_password_policy_is_used_by_sanitizer_validation() {
+        let mut config = Config {
+            repository: PathBuf::from("."),
+            output: PathBuf::from("out.zip"),
+            format: ArchiveFormat::Zip,
+            compression: Compression::Zstd,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 1,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: true,
+            password: Some("abcd".to_owned()),
+            password_policy: PasswordPolicy {
+                minimum_length: 4,
+                require_uppercase: false,
+                require_lowercase: true,
+                require_number: false,
+                require_special: false,
+            },
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        };
+        assert!(validate_config(&config).is_ok());
+        config.password_policy.require_uppercase = true;
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn seven_zip_passwords_are_rejected_without_echoing_secret() {
+        let secret = "NotPrinted7!";
+        let config = Config {
+            repository: PathBuf::from("."),
+            output: PathBuf::from("out.7z"),
+            format: ArchiveFormat::SevenZip,
+            compression: Compression::None,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 1,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: false,
+            password: Some(secret.to_owned()),
+            password_policy: PasswordPolicy::default(),
+            password_file: None,
+            verbose: false,
+            quiet: false,
+        };
+        let error = validate_config(&config).unwrap_err().to_string();
+        assert!(error.contains("only for ZIP AES"));
+        assert!(!error.contains(secret));
+    }
+
+    #[test]
+    fn cancellation_stops_before_scanning() {
+        let d = tempdir().unwrap();
+        git(d.path(), &["init", "-q"]);
+        git_config(d.path());
+        fs::write(d.path().join("input.txt"), "safe").unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-q", "-m", "initial"]);
+        let config = Config {
+            repository: d.path().to_owned(),
+            output: d.path().join("output.tar.zst"),
+            format: ArchiveFormat::Tar,
+            compression: Compression::Zstd,
+            report: ReportFormat::None,
+            include_untracked: false,
+            max_file_size: 1024,
+            excludes: vec![],
+            includes: vec![],
+            redact: true,
+            fail_on_secret: false,
+            dry_run: true,
+            password: None,
+            password_policy: PasswordPolicy::default(),
+            password_file: None,
+            verbose: false,
+            quiet: true,
+        };
+        let result = run_with_progress(
+            config,
+            |_| panic!("cancelled run emitted progress"),
+            || true,
+        );
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn progress_events_include_writing_and_finished_after_scanning() {
+        let d = repo();
+        let output = d.path().join("events.tar.zst");
+        let mut events = Vec::new();
+        run_with_progress(
+            Config {
+                repository: d.path().into(),
+                output,
+                format: ArchiveFormat::Tar,
+                compression: Compression::Zstd,
+                report: ReportFormat::None,
+                include_untracked: false,
+                max_file_size: 100_000,
+                excludes: vec![],
+                includes: vec![],
+                redact: true,
+                fail_on_secret: false,
+                dry_run: false,
+                password: None,
+                password_policy: PasswordPolicy::default(),
+                password_file: None,
+                verbose: false,
+                quiet: true,
+            },
+            |event| events.push(event),
+            || false,
+        )
+        .unwrap();
+        assert!(matches!(
+            events.first(),
+            Some(ProgressEvent::Scanning { .. })
+        ));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, ProgressEvent::Writing { .. })));
+        assert!(matches!(events.last(), Some(ProgressEvent::Finished)));
     }
 
     fn commit(path: &Path, message: &str) {

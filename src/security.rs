@@ -7,6 +7,67 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Component, Path};
 
+/// Non-secret policy used to validate archive passwords before encryption.
+/// The policy itself is safe to persist; password material is never stored in
+/// it or in the returned validation errors.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PasswordPolicy {
+    pub minimum_length: usize,
+    pub require_uppercase: bool,
+    pub require_lowercase: bool,
+    pub require_number: bool,
+    pub require_special: bool,
+}
+
+impl Default for PasswordPolicy {
+    fn default() -> Self {
+        Self {
+            minimum_length: 8,
+            require_uppercase: true,
+            require_lowercase: true,
+            require_number: true,
+            require_special: true,
+        }
+    }
+}
+
+impl PasswordPolicy {
+    pub const MAXIMUM_LENGTH: usize = 256;
+
+    pub fn validate(self) -> Result<(), &'static str> {
+        if self.minimum_length == 0 || self.minimum_length > Self::MAXIMUM_LENGTH {
+            return Err("minimum password length must be between 1 and 256");
+        }
+        Ok(())
+    }
+}
+
+/// Returns concise unmet requirements without returning or echoing the
+/// password itself (including its length).
+pub fn validate_password(password: &str, policy: PasswordPolicy) -> Result<(), Vec<&'static str>> {
+    let mut unmet = Vec::new();
+    if password.chars().count() < policy.minimum_length {
+        unmet.push("minimum length");
+    }
+    if policy.require_uppercase && !password.chars().any(|c| c.is_ascii_uppercase()) {
+        unmet.push("uppercase letter");
+    }
+    if policy.require_lowercase && !password.chars().any(|c| c.is_ascii_lowercase()) {
+        unmet.push("lowercase letter");
+    }
+    if policy.require_number && !password.chars().any(|c| c.is_ascii_digit()) {
+        unmet.push("number");
+    }
+    if policy.require_special && !password.chars().any(|c| !c.is_ascii_alphanumeric()) {
+        unmet.push("special character");
+    }
+    if unmet.is_empty() {
+        Ok(())
+    } else {
+        Err(unmet)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExclusionReason {
     GitMetadata,
@@ -384,5 +445,46 @@ eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3OCJ9.signature-value-long-enough\n";
             .contains("ghp_123456789012345678901234567890123456"));
         assert!(!result.text.contains("literal-password-value"));
         assert!(result.counts.values().sum::<usize>() >= 2);
+    }
+
+    #[test]
+    fn default_password_policy_requires_all_categories_without_echoing_secret() {
+        let password = "weak";
+        let unmet = validate_password(password, PasswordPolicy::default()).unwrap_err();
+        assert_eq!(
+            unmet,
+            vec![
+                "minimum length",
+                "uppercase letter",
+                "number",
+                "special character"
+            ]
+        );
+        assert!(!unmet
+            .iter()
+            .any(|requirement| requirement.contains(password)));
+    }
+
+    #[test]
+    fn password_policy_accepts_configured_relaxed_rules() {
+        let policy = PasswordPolicy {
+            minimum_length: 4,
+            require_uppercase: false,
+            require_lowercase: true,
+            require_number: false,
+            require_special: false,
+        };
+        assert!(policy.validate().is_ok());
+        assert!(validate_password("rust", policy).is_ok());
+        assert!(validate_password("RST", policy).is_err());
+    }
+
+    #[test]
+    fn password_policy_rejects_unreasonable_length() {
+        let policy = PasswordPolicy {
+            minimum_length: PasswordPolicy::MAXIMUM_LENGTH + 1,
+            ..PasswordPolicy::default()
+        };
+        assert!(policy.validate().is_err());
     }
 }
