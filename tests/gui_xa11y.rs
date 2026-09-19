@@ -51,6 +51,7 @@ fn discovers_slint_controls_semantically() {
     app.locator(r##"check_box[name="Advanced options"]"##)
         .press()
         .expect("Advanced options must be semantically activatable");
+    std::thread::sleep(std::time::Duration::from_millis(500));
     let include_glob = app.locator(r##"text_field[name="Custom include glob"]"##);
     include_glob
         .scroll_into_view()
