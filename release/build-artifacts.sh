@@ -15,8 +15,19 @@ deb_arch=$arch
 [[ "$arch" == x86_64 ]] && deb_arch=amd64
 [[ "$arch" == aarch64 ]] && deb_arch=arm64
 test -x "$binary"
-actual=$($binary --version | awk '{print $NF}')
-test "$actual" = "$version" || { echo "binary version $actual != $version" >&2; exit 1; }
+if [[ "${RELEASE_CROSS_CHECK:-0}" == 1 ]]; then
+  # Cross-target binaries cannot be executed on the amd64 runner. The exact
+  # immutable tag and Cargo version are checked by the workflow; additionally
+  # require the release version string to be embedded in the produced binary.
+  command -v strings >/dev/null
+  strings "$binary" | grep -Fqx "$version" || {
+    echo "cross-target binary does not contain release version $version" >&2
+    exit 1
+  }
+else
+  actual=$($binary --version | awk '{print $NF}')
+  test "$actual" = "$version" || { echo "binary version $actual != $version" >&2; exit 1; }
+fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cp "$binary" "$stage/itsulu-repo-sanitizer"
