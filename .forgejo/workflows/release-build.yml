@@ -32,8 +32,11 @@ jobs:
           set -eu
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
-          command -v cross >/dev/null || cargo install cross --locked
-          cross build --locked --release --target '${{ matrix.target }}'
+          apt-get update
+          apt-get install -y --no-install-recommends python3-pip
+          python3 -m pip install --break-system-packages ziglang
+          command -v cargo-zigbuild >/dev/null || cargo install cargo-zigbuild --locked
+          cargo zigbuild --locked --release --target '${{ matrix.target }}'
           mkdir -p dist
           RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh 0.4.2 dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
           (cd dist && sha256sum -c SHA256SUMS)
@@ -79,8 +82,11 @@ jobs:
           set -eu
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
-          command -v cross >/dev/null || cargo install cross --locked
-          cross build --locked --release --target x86_64-pc-windows-gnu
+          apt-get update
+          apt-get install -y --no-install-recommends python3-pip
+          python3 -m pip install --break-system-packages ziglang
+          command -v cargo-zigbuild >/dev/null || cargo install cargo-zigbuild --locked
+          cargo zigbuild --locked --release --target x86_64-pc-windows-gnu
           mkdir -p dist
           zip -j dist/rustrepo-sanitizer-0.4.2-windows-x86_64.zip target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
           (cd dist && sha256sum *.zip > SHA256SUMS)
