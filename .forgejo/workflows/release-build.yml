@@ -7,22 +7,94 @@ on:
         required: true
         description: Release version without the v prefix
 
+permissions:
+  contents: read
+
 jobs:
-  linux-x86_64:
-    runs-on: garuda-16
+  build:
+    runs-on: garuda-8-16-runner
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-glibc-x86_64, target: x86_64-unknown-linux-gnu, platform: linux-glibc, arch: x86_64 }
+          - { name: linux-glibc-aarch64, target: aarch64-unknown-linux-gnu, platform: linux-glibc, arch: aarch64 }
+          - { name: linux-musl-x86_64, target: x86_64-unknown-linux-musl, platform: linux-musl, arch: x86_64 }
+          - { name: linux-musl-aarch64, target: aarch64-unknown-linux-musl, platform: linux-musl, arch: aarch64 }
+          - { name: alpine-x86_64, target: x86_64-unknown-linux-musl, platform: alpine, arch: x86_64 }
+          - { name: alpine-aarch64, target: aarch64-unknown-linux-musl, platform: alpine, arch: aarch64 }
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          ref: v${{ inputs.version }}
+        with: { fetch-depth: 1, ref: v${{ inputs.version }} }
       - uses: https://github.com/dtolnay/rust-toolchain@stable
-      - run: cargo build --release
+        with: { targets: ${{ matrix.target }} }
       - run: |
+          set -eu
           test "$(git describe --tags --exact-match HEAD)" = "v${{ inputs.version }}"
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ inputs.version }}"
+          command -v cross >/dev/null || cargo install cross --locked
+          cross build --locked --release --target '${{ matrix.target }}'
           mkdir -p dist
-          cargo install cargo-deb cargo-generate-rpm --locked
-          RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS=deb,rpm release/build-artifacts.sh "${{ inputs.version }}" dist
+          RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh '${{ inputs.version }}' dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
           (cd dist && sha256sum -c SHA256SUMS)
-      - uses: actions/upload-artifact@v3
-        with: { name: linux-x86_64, path: dist/ }
+      - uses: actions/upload-artifact@v4
+        with: { name: ${{ matrix.name }}, path: dist/ }
+
+  packages:
+    runs-on: garuda-8-16-runner
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: debian-amd64, format: deb }
+          - { name: rpm-x86_64, format: rpm }
+          - { name: arch-x86_64, format: arch }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: v${{ inputs.version }} }
+      - uses: https://github.com/dtolnay/rust-toolchain@stable
+      - run: |
+          set -eu
+          test "$(git describe --tags --exact-match HEAD)" = "v${{ inputs.version }}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ inputs.version }}"
+          cargo build --locked --release
+          cargo install cargo-deb cargo-generate-rpm --locked
+          RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh '${{ inputs.version }}' dist
+          (cd dist && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with: { name: ${{ matrix.name }}, path: dist/ }
+
+  windows:
+    runs-on: garuda-8-16-runner
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: v${{ inputs.version }} }
+      - uses: https://github.com/dtolnay/rust-toolchain@stable
+        with: { targets: x86_64-pc-windows-gnu }
+      - run: |
+          set -eu
+          test "$(git describe --tags --exact-match HEAD)" = "v${{ inputs.version }}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ inputs.version }}"
+          command -v cross >/dev/null || cargo install cross --locked
+          cross build --locked --release --target x86_64-pc-windows-gnu
+          mkdir -p dist
+          zip -j "dist/rustrepo-sanitizer-${{ inputs.version }}-windows-x86_64.zip" target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
+          (cd dist && sha256sum *.zip > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-x86_64, path: dist/ }
+
+  publish:
+    needs: [build, packages, windows]
+    runs-on: garuda-8-16-runner
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1, ref: v${{ inputs.version }} }
+      - run: |
+          set -eu
+          find dist -type f ! -name SHA256SUMS -print0 | xargs -0 sha256sum | sort -k2 > dist/SHA256SUMS
+          RELEASE_NOTES_FILE="release/${{ inputs.version }}.md" RELEASE_COMMIT="$(git rev-parse HEAD)" release/publish-release.sh '${{ inputs.version }}' dist
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
