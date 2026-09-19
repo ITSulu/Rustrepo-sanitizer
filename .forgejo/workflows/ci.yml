@@ -13,6 +13,7 @@ env:
 jobs:
   quality:
     runs-on: garuda-16
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -26,6 +27,7 @@ jobs:
 
   stable-check:
     runs-on: garuda-16
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -34,6 +36,7 @@ jobs:
 
   gui-xa11y:
     runs-on: garuda-16
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -42,6 +45,7 @@ jobs:
 
   security-release:
     runs-on: garuda-16
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
