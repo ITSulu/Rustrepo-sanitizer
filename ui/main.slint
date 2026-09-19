@@ -171,7 +171,7 @@ export component MainWindow inherits Window {
             report := HelpfulComboBox { model: ["Markdown", "JSON", "None"]; help: "Choose the optional human-readable or JSON sanitization report."; accessible-id: "report"; accessible-label: "Report format"; }
         }
         advanced := HelpfulCheckBox { text: "Advanced options"; help: "Configure redaction, limits, filters, and encryption options."; accessible-id: "advanced-options"; accessible-label: "Advanced options"; }
-        if advanced.checked: ScrollView { VerticalBox { spacing: 8px;
+        ScrollView { enabled: advanced.checked; VerticalBox { spacing: 8px;
             HelpfulCheckBox { text: "Redact detected secrets"; help: "Replace high-confidence secret values with redaction markers."; checked <=> root.redact-secrets; accessible-label: "Redact secrets"; }
             HelpfulCheckBox { text: "Fail when secrets are detected"; help: "Stop instead of producing output when a secret is detected."; checked <=> root.fail-on-secret; accessible-label: "Fail on secret"; }
             Text { text: "Maximum file size (bytes)"; }
