@@ -2,18 +2,12 @@ name: Release artifacts
 
 on:
   push:
-    branches: [release-backfill-040, release-backfill-041, release-backfill-042]
+    branches: [release-backfill-042]
   workflow_dispatch:
     inputs:
       version:
         required: true
         description: Release version without the v prefix
-
-permissions:
-  contents: read
-
-env:
-  RELEASE_VERSION: ${{ inputs.version || (github.ref_name == 'release-backfill-040' && '0.4.0' || (github.ref_name == 'release-backfill-041' && '0.4.1' || '0.4.2')) }}
 
 jobs:
   build:
@@ -30,17 +24,17 @@ jobs:
           - { name: alpine-aarch64, target: aarch64-unknown-linux-musl, platform: alpine, arch: aarch64 }
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v${{ env.RELEASE_VERSION }} }
+        with: { fetch-depth: 1, ref: v0.4.2 }
       - uses: https://github.com/dtolnay/rust-toolchain@stable
         with: { targets: ${{ matrix.target }} }
       - run: |
           set -eu
-          test "$(git describe --tags --exact-match HEAD)" = "v${{ env.RELEASE_VERSION }}"
-          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ env.RELEASE_VERSION }}"
+          test "$(git describe --tags --exact-match HEAD)" = v0.4.2
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           command -v cross >/dev/null || cargo install cross --locked
           cross build --locked --release --target '${{ matrix.target }}'
           mkdir -p dist
-          RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh '${{ env.RELEASE_VERSION }}' dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
+          RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh 0.4.2 dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with: { name: ${{ matrix.name }}, path: dist/ }
@@ -56,15 +50,15 @@ jobs:
           - { name: arch-x86_64, format: arch }
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v${{ env.RELEASE_VERSION }} }
+        with: { fetch-depth: 1, ref: v0.4.2 }
       - uses: https://github.com/dtolnay/rust-toolchain@stable
       - run: |
           set -eu
-          test "$(git describe --tags --exact-match HEAD)" = "v${{ env.RELEASE_VERSION }}"
-          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ env.RELEASE_VERSION }}"
+          test "$(git describe --tags --exact-match HEAD)" = v0.4.2
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           cargo build --locked --release
           cargo install cargo-deb cargo-generate-rpm --locked
-          RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh '${{ env.RELEASE_VERSION }}' dist
+          RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh 0.4.2 dist
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with: { name: ${{ matrix.name }}, path: dist/ }
@@ -73,17 +67,17 @@ jobs:
     runs-on: garuda-8-16-runner
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v${{ env.RELEASE_VERSION }} }
+        with: { fetch-depth: 1, ref: v0.4.2 }
       - uses: https://github.com/dtolnay/rust-toolchain@stable
         with: { targets: x86_64-pc-windows-gnu }
       - run: |
           set -eu
-          test "$(git describe --tags --exact-match HEAD)" = "v${{ env.RELEASE_VERSION }}"
-          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "${{ env.RELEASE_VERSION }}"
+          test "$(git describe --tags --exact-match HEAD)" = v0.4.2
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           command -v cross >/dev/null || cargo install cross --locked
           cross build --locked --release --target x86_64-pc-windows-gnu
           mkdir -p dist
-          zip -j "dist/rustrepo-sanitizer-${{ env.RELEASE_VERSION }}-windows-x86_64.zip" target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
+          zip -j dist/rustrepo-sanitizer-0.4.2-windows-x86_64.zip target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
           (cd dist && sha256sum *.zip > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with: { name: windows-x86_64, path: dist/ }
@@ -95,16 +89,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v${{ env.RELEASE_VERSION }} }
+        with: { fetch-depth: 1, ref: v0.4.2 }
       - run: |
           set -eu
-          version='${{ env.RELEASE_VERSION }}'
+          version=0.4.2
           expected="rustrepo-sanitizer-${version}-linux-glibc-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-glibc-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-musl-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-musl-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-amd64.deb rustrepo-sanitizer-${version}-linux-x86_64.rpm rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst rustrepo-sanitizer-${version}-alpine-x86_64.tar.gz rustrepo-sanitizer-${version}-alpine-aarch64.tar.gz rustrepo-sanitizer-${version}-windows-x86_64.zip"
           find dist -type f ! -name SHA256SUMS -print0 | xargs -0 sha256sum | sort -k2 > dist/SHA256SUMS
           actual=$(find dist -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | tr '\n' ' ')
           wanted=$(printf '%s\n' $expected | sort | tr '\n' ' ')
           test "$actual" = "$wanted"
-          RELEASE_EXPECTED_ASSETS="$(printf '%s\n' $expected | tr ' ' ',')" RELEASE_NOTES_FILE="release/${{ env.RELEASE_VERSION }}.md" RELEASE_COMMIT="$(git rev-parse "v${{ env.RELEASE_VERSION }}")" release/publish-release.sh '${{ env.RELEASE_VERSION }}' dist
+          RELEASE_EXPECTED_ASSETS="$(printf '%s\n' $expected | tr ' ' ',')" RELEASE_NOTES_FILE=release/0.4.2.md RELEASE_COMMIT="$(git rev-parse v0.4.2)" release/publish-release.sh 0.4.2 dist
         env:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
