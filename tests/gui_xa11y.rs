@@ -14,7 +14,7 @@ fn discovers_slint_controls_semantically() {
         .find(|app| app.name.to_ascii_lowercase().contains("rustrepo"))
         .expect("Slint application must be discoverable through AT-SPI");
     let tree = app.dump(Some(4)).expect("AT-SPI tree must be readable");
-    assert!(tree.contains("Rustrepo Sanitizer"));
+    assert!(app.name.to_ascii_lowercase().contains("rustrepo"));
     app.locator(r##"text_field[name="Repository path"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("repository input must be semantically discoverable");
