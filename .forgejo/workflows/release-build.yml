@@ -26,7 +26,8 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: v0.4.2 }
       - uses: https://github.com/dtolnay/rust-toolchain@stable
-        with: { targets: ${{ matrix.target }} }
+        with:
+          targets: '${{ matrix.target }}'
       - run: |
           set -eu
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
@@ -37,7 +38,9 @@ jobs:
           RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh 0.4.2 dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
-        with: { name: ${{ matrix.name }}, path: dist/ }
+        with:
+          name: '${{ matrix.name }}'
+          path: dist/
 
   packages:
     runs-on: garuda-8-16-runner
@@ -61,7 +64,9 @@ jobs:
           RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh 0.4.2 dist
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
-        with: { name: ${{ matrix.name }}, path: dist/ }
+        with:
+          name: '${{ matrix.name }}'
+          path: dist/
 
   windows:
     runs-on: garuda-8-16-runner
@@ -80,7 +85,9 @@ jobs:
           zip -j dist/rustrepo-sanitizer-0.4.2-windows-x86_64.zip target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
           (cd dist && sha256sum *.zip > SHA256SUMS)
       - uses: actions/upload-artifact@v4
-        with: { name: windows-x86_64, path: dist/ }
+        with:
+          name: windows-x86_64
+          path: dist/
 
   publish:
     needs: [build, packages, windows]
