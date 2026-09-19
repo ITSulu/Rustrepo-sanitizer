@@ -7,6 +7,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_HTTP_TIMEOUT: 180
+  CARGO_NET_RETRY: 10
 
 jobs:
   quality:
