@@ -9,7 +9,6 @@ command -v timeout >/dev/null
 command -v gdbus >/dev/null
 command -v xdotool >/dev/null
 command -v xprop >/dev/null
-command -v openbox >/dev/null
 cargo test --test gui_xa11y --no-run
 cargo build --features gui --bin rustrepo-sanitizer-gui
 test_bin=$(find target/debug/deps -maxdepth 1 -type f -name "gui_xa11y-*" -executable | head -n 1)
@@ -31,8 +30,10 @@ restore() {
     if [[ -n "${wm_pid:-}" ]]; then kill "$wm_pid" >/dev/null 2>&1 || true; wait "$wm_pid" >/dev/null 2>&1 || true; fi
 }
 trap restore EXIT
-openbox --startup /usr/bin/true >/tmp/rustrepo-openbox.log 2>&1 &
-wm_pid=$!
+if command -v openbox >/dev/null; then
+    openbox --startup /usr/bin/true >/tmp/rustrepo-openbox.log 2>&1 &
+    wm_pid=$!
+fi
 sleep 1
 AT_SPI_BUS="$accessibility_bus" /usr/lib/at-spi2-registryd --dbus-name=org.a11y.atspi.Registry >/tmp/rustrepo-atspi-registry.log 2>&1 &
 registry_pid=$!
