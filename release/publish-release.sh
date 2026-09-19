@@ -24,7 +24,31 @@ upload_files=("${files[@]}" SHA256SUMS)
 forgejo_api=https://git.itsulu.com/api/v1/repos/itsulu/Rustrepo-sanitizer
 github_api=https://api.github.com/repos/ITSulu/Rustrepo-sanitizer
 notes=${RELEASE_NOTES_FILE:-}
-if [[ -n "$notes" ]]; then notes=$(<"$notes"); else notes="Release ${version}. Cross-platform binaries and packages; every asset is covered by SHA256SUMS."; fi
+if [[ -z "$notes" && -f "release/${version}.md" ]]; then
+  notes="release/${version}.md"
+fi
+if [[ -n "$notes" ]]; then
+  notes=$(<"$notes")
+else
+  notes=$(cat <<EOF
+# Rustrepo-sanitizer ${version}
+
+## Summary
+
+This release contains the versioned Rustrepo-sanitizer command-line and GUI
+build from the exact immutable v${version} tag. It includes the repository
+sanitization pipeline, deterministic archive generation, redaction safeguards,
+reports, and the platform packaging produced by the release workflow.
+
+## Verification and downloads
+
+Forgejo Actions built and checked the exact tag. The published Linux x86_64
+archive, Debian package, and RPM package are listed in SHA256SUMS. Verify the
+manifest before installing or extracting an asset. The same assets and
+manifest are mirrored on Forgejo and GitHub.
+EOF
+)
+fi
 cfg=$(mktemp); chmod 600 "$cfg"; trap 'rm -f "$cfg"' EXIT
 configure() { printf 'header = "Authorization: %s %s"\n' "$1" "$2" > "$cfg"; }
 get() { curl -fsS --config "$cfg" "$1"; }
@@ -79,6 +103,10 @@ verify_release() {
   local api=$1 scheme=$2 token=$3 repo_url=$4; configure "$scheme" "$token"; release=$(get "$api/releases/tags/$tag")
   jq -e --arg t "$tag" '.tag_name == $t and (.draft|not) and (.prerelease|not)' <<<"$release" >/dev/null
   remote_commit=$(git ls-remote "$repo_url" "refs/tags/$tag^{}" | awk 'NR==1 {print $1}')
+  # Lightweight tags have no peeled ^{} ref; verify their direct target too.
+  if [[ -z "$remote_commit" ]]; then
+    remote_commit=$(git ls-remote "$repo_url" "refs/tags/$tag" | awk 'NR==1 {print $1}')
+  fi
   [[ "$remote_commit" == "$target_commit" ]] || { echo "remote tag commit $remote_commit != $target_commit" >&2; exit 1; }
   for name in "${upload_files[@]}"; do
     url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
