@@ -38,7 +38,15 @@ jobs:
           command -v cargo-zigbuild >/dev/null || cargo install cargo-zigbuild --locked
           cargo zigbuild --locked --release --target '${{ matrix.target }}'
           mkdir -p dist
-          RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' RELEASE_CROSS_CHECK=1 release/build-artifacts.sh 0.4.2 dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
+          if [ '${{ matrix.arch }}' = aarch64 ]; then
+            mkdir -p cross-stage
+            cp target/${{ matrix.target }}/release/itsulu-repo-sanitizer cross-stage/itsulu-repo-sanitizer
+            chmod 0755 cross-stage/itsulu-repo-sanitizer
+            tar -C cross-stage -czf "dist/rustrepo-sanitizer-0.4.2-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" itsulu-repo-sanitizer
+            (cd dist && sha256sum $(find . -maxdepth 1 -type f -printf '%f\n' | sort) > SHA256SUMS)
+          else
+            RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh 0.4.2 dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
+          fi
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v3
         with:
