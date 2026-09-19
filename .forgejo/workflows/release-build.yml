@@ -40,7 +40,7 @@ jobs:
           mkdir -p dist
           RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh 0.4.2 dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
           (cd dist && sha256sum -c SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v3
         with:
           name: '${{ matrix.name }}'
           path: dist/
@@ -66,7 +66,7 @@ jobs:
           cargo install cargo-deb cargo-generate-rpm --locked
           RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh 0.4.2 dist
           (cd dist && sha256sum -c SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v3
         with:
           name: '${{ matrix.name }}'
           path: dist/
@@ -90,7 +90,7 @@ jobs:
           mkdir -p dist
           zip -j dist/rustrepo-sanitizer-0.4.2-windows-x86_64.zip target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
           (cd dist && sha256sum *.zip > SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v3
         with:
           name: windows-x86_64
           path: dist/
@@ -99,7 +99,7 @@ jobs:
     needs: [build, packages, windows]
     runs-on: garuda-16
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v3
         with: { path: dist, merge-multiple: true }
       - uses: actions/checkout@v4
         with: { fetch-depth: 1, ref: v0.4.2 }
