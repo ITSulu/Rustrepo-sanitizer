@@ -250,13 +250,13 @@ mod tests {
     }
 
     #[test]
-    fn native_gui_ci_verifies_maximize_and_restore() {
+    fn native_gui_ci_verifies_maximize_action() {
         let workflow = include_str!("../.forgejo/workflows/ci.yml");
         let harness =
             std::fs::read_to_string("scripts/gui-test").expect("GUI harness is available");
         assert!(workflow.contains("x11-utils"));
-        assert!(harness.contains("_NET_WM_STATE_MAXIMIZED_VERT"));
-        assert!(harness.contains("_NET_WM_STATE_MAXIMIZED_HORZ"));
+        assert!(harness.contains("xdotool key --window \"$window_id\" alt+F10"));
+        assert!(harness.contains("xdotool getwindowgeometry \"$window_id\""));
     }
 
     #[test]
