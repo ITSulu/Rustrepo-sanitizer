@@ -89,18 +89,18 @@ jobs:
             chmod 0755 "$pkgroot/usr/bin/itsulu-repo-sanitizer"
             size=$(stat -c '%s' "$pkgroot/usr/bin/itsulu-repo-sanitizer")
             cat > "$pkgroot/.PKGINFO" <<EOF
-pkgname = rustrepo-sanitizer
-pkgbase = rustrepo-sanitizer
-pkgver = 0.4.2-1
-pkgdesc = Create deterministic, sanitized AI review bundles from Git repositories
-url = https://git.itsulu.com/itsulu/Rustrepo-sanitizer
-builddate = $(date +%s)
-packager = ITSulu release automation
-size = $size
-arch = x86_64
-license = Apache-2.0
-depend = glibc
-EOF
+            pkgname = rustrepo-sanitizer
+            pkgbase = rustrepo-sanitizer
+            pkgver = 0.4.2-1
+            pkgdesc = Create deterministic, sanitized AI review bundles from Git repositories
+            url = https://git.itsulu.com/itsulu/Rustrepo-sanitizer
+            builddate = $(date +%s)
+            packager = ITSulu release automation
+            size = $size
+            arch = x86_64
+            license = Apache-2.0
+            depend = glibc
+            EOF
             tar --zstd -cf "dist/rustrepo-sanitizer-0.4.2-arch-x86_64.pkg.tar.zst" -C "$pkgroot" .PKGINFO usr
             (cd dist && sha256sum *.pkg.tar.zst > SHA256SUMS)
           else
