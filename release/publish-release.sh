@@ -52,6 +52,15 @@ fi
 cfg=$(mktemp); chmod 600 "$cfg"; trap 'rm -f "$cfg"' EXIT
 configure() { printf 'header = "Authorization: %s %s"\n' "$1" "$2" > "$cfg"; }
 get() { curl -fsS --config "$cfg" "$1"; }
+retry() {
+  # Release hosts occasionally fail DNS/connectivity; retry transient errors.
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if "$@"; then return 0; fi
+    sleep 5
+  done
+  return 1
+}
 ensure_release() {
   local api=$1 scheme=$2 token=$3; configure "$scheme" "$token"
   local body code id payload
@@ -86,7 +95,7 @@ publish_assets() {
     asset_id=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$release" | head -1)
     if [[ -n "$asset_id" ]]; then
       url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
-      remote=$(mktemp); curl -fsS -L "$url" -o "$remote"
+      remote=$(mktemp); retry curl -fsS -L "$url" -o "$remote"
       if [[ "$name" == SHA256SUMS ]]; then
         cmp -s "$remote" "$assets/SHA256SUMS" && { rm -f "$remote"; continue; }
       else
@@ -95,15 +104,15 @@ publish_assets() {
       fi
       rm -f "$remote"
       if [[ "$forgejo" == true ]]; then
-        curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
+        retry curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
       else
-        curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
+        retry curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
       fi
     fi
     if [[ "$forgejo" == true ]]; then
-      curl -fsS --config "$cfg" -F "attachment=@$file" "$upload/$id/assets?name=$name" >/dev/null
+      retry curl -fsS --config "$cfg" -F "attachment=@$file" "$upload/$id/assets?name=$name" >/dev/null
     else
-      curl -fsS --config "$cfg" -H 'Content-Type: application/octet-stream' --data-binary "@$file" "$upload/$id/assets?name=$name" >/dev/null
+      retry curl -fsS --config "$cfg" -H 'Content-Type: application/octet-stream' --data-binary "@$file" "$upload/$id/assets?name=$name" >/dev/null
     fi
   done
 }
@@ -121,9 +130,9 @@ prune_assets() {
     asset_id=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$release" | head -1)
     [[ -n "$asset_id" ]] || continue
     if [[ "$forgejo" == true ]]; then
-      curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
+      retry curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
     else
-      curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
+      retry curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
     fi
   done < <(jq -r '.assets[].name' <<<"$release")
 }
