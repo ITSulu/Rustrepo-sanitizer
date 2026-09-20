@@ -180,5 +180,5 @@ jobs:
           export RELEASE_COMMIT="$(git rev-parse "v${version}")"
           bash release/publish-release.sh "$version" dist
         env:
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORGEJO_TOKEN: ${{ secrets.RUSTREPO_FORGEJO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RUSTREPO_GITHUB_TOKEN }}
