@@ -144,10 +144,17 @@ publish_assets "$github_api" Bearer "$GITHUB_TOKEN" "https://uploads.github.com/
 prune_assets "$forgejo_api" token "$FORGEJO_TOKEN" true
 prune_assets "$github_api" Bearer "$GITHUB_TOKEN" false
 remote_matches() {
-  # Asset downloads can serve a stale copy right after upload; retry briefly.
-  local url=$1 name=$2 expected=$3 dest actual attempt
-  dest=$(mktemp)
-  for attempt in 1 2 3 4 5 6; do
+  # After an asset is replaced, downloads (and cached release metadata) can keep
+  # serving the previous copy for several minutes. Re-resolve the asset each
+  # attempt and keep retrying until the mirror reports the expected content.
+  local api=$1 name=$2 expected=$3 attempt release url dest actual
+  for attempt in $(seq 1 20); do
+    release=$(get "$api/releases/tags/$tag")
+    if ! jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null; then
+      sleep 15; continue
+    fi
+    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
+    dest=$(mktemp)
     if curl -fsS -L "$url" -o "$dest"; then
       if [[ "$name" == SHA256SUMS ]]; then
         cmp -s "$dest" "$assets/SHA256SUMS" && { rm -f "$dest"; return 0; }
@@ -156,9 +163,9 @@ remote_matches() {
         [[ "$actual" == "$expected" ]] && { rm -f "$dest"; return 0; }
       fi
     fi
-    sleep 5
+    rm -f "$dest"
+    sleep 15
   done
-  rm -f "$dest"
   return 1
 }
 verify_release() {
@@ -171,10 +178,8 @@ verify_release() {
   fi
   [[ "$remote_commit" == "$target_commit" ]] || { echo "remote tag commit $remote_commit != $target_commit" >&2; exit 1; }
   for name in "${upload_files[@]}"; do
-    jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null
-    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
     expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
-    remote_matches "$url" "$name" "$expected" || { echo "checksum mismatch for $name" >&2; exit 1; }
+    remote_matches "$api" "$name" "$expected" || { echo "checksum mismatch for $name" >&2; exit 1; }
   done
 }
 verify_release "$forgejo_api" token "$FORGEJO_TOKEN" https://git.itsulu.com/itsulu/Rustrepo-sanitizer.git
