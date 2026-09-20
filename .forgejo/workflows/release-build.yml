@@ -131,7 +131,7 @@ jobs:
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           apt-get update
-          apt-get install -y --no-install-recommends python3-pip
+          apt-get install -y --no-install-recommends python3-pip zip
           python3 -m pip install --break-system-packages ziglang
           command -v cargo-zigbuild >/dev/null || cargo install cargo-zigbuild --locked
           cargo zigbuild --locked --release --target x86_64-pc-windows-gnu
