@@ -82,6 +82,8 @@ jobs:
           cargo build --locked --release
           mkdir -p dist
           if [ '${{ matrix.format }}' = arch ]; then
+            apt-get update
+            apt-get install -y --no-install-recommends zstd
             pkgroot="$PWD/arch-root"
             rm -rf "$pkgroot"
             mkdir -p "$pkgroot/usr/bin"
