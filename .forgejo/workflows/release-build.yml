@@ -177,7 +177,7 @@ jobs:
           test "$actual" = "$wanted"
           export RELEASE_EXPECTED_ASSETS="$(printf '%s\n' $expected | tr ' ' ',')"
           export RELEASE_NOTES_FILE="release/${version}.md"
-          export RELEASE_COMMIT="$(git rev-parse "v${version}")"
+          export RELEASE_COMMIT="$(git rev-parse "v${version}^{commit}")"
           bash release/publish-release.sh "$version" dist
         env:
           FORGEJO_TOKEN: ${{ secrets.RUSTREPO_FORGEJO_TOKEN }}
