@@ -33,6 +33,7 @@ jobs:
           rustup target add '${{ matrix.target }}' --toolchain stable
       - run: |
           set -eu
+          export PATH="$HOME/.cargo/bin:$PATH"
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           apt-get update
@@ -75,6 +76,7 @@ jobs:
           rustup toolchain install stable --profile minimal --no-self-update
       - run: |
           set -eu
+          export PATH="$HOME/.cargo/bin:$PATH"
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           cargo build --locked --release
@@ -99,6 +101,7 @@ jobs:
           rustup target add x86_64-pc-windows-gnu --toolchain stable
       - run: |
           set -eu
+          export PATH="$HOME/.cargo/bin:$PATH"
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           apt-get update
