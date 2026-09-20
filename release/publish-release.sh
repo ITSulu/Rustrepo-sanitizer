@@ -95,10 +95,33 @@ publish_assets() {
     fi
   done
 }
+prune_assets() {
+  local api=$1 scheme=$2 token=$3 forgejo=$4; configure "$scheme" "$token"
+  local release id name asset_id keep u
+  release=$(get "$api/releases/tags/$tag"); id=$(jq -r '.id' <<<"$release")
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    keep=false
+    for u in "${upload_files[@]}"; do
+      [[ "$name" == "$u" ]] && keep=true
+    done
+    [[ "$keep" == true ]] && continue
+    asset_id=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$release" | head -1)
+    [[ -n "$asset_id" ]] || continue
+    if [[ "$forgejo" == true ]]; then
+      curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
+    else
+      curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
+    fi
+  done < <(jq -r '.assets[].name' <<<"$release")
+}
+
 ensure_release "$forgejo_api" token "$FORGEJO_TOKEN"
 ensure_release "$github_api" Bearer "$GITHUB_TOKEN"
 publish_assets "$forgejo_api" token "$FORGEJO_TOKEN" "$forgejo_api/releases" true
 publish_assets "$github_api" Bearer "$GITHUB_TOKEN" "https://uploads.github.com/repos/ITSulu/Rustrepo-sanitizer/releases" false
+prune_assets "$forgejo_api" token "$FORGEJO_TOKEN" true
+prune_assets "$github_api" Bearer "$GITHUB_TOKEN" false
 verify_release() {
   local api=$1 scheme=$2 token=$3 repo_url=$4; configure "$scheme" "$token"; release=$(get "$api/releases/tags/$tag")
   jq -e --arg t "$tag" '.tag_name == $t and (.draft|not) and (.prerelease|not)' <<<"$release" >/dev/null
