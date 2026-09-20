@@ -54,16 +54,28 @@ configure() { printf 'header = "Authorization: %s %s"\n' "$1" "$2" > "$cfg"; }
 get() { curl -fsS --config "$cfg" "$1"; }
 ensure_release() {
   local api=$1 scheme=$2 token=$3; configure "$scheme" "$token"
-  local body code; body=$(mktemp)
+  local body code id payload
+  payload=$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" \
+    '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')
+  body=$(mktemp)
   code=$(curl -sS --config "$cfg" -o "$body" -w '%{http_code}' "$api/releases/tags/$tag")
-  case "$code" in
-    200) local id; id=$(jq -r '.id' <"$body"); curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X PATCH "$api/releases/$id" \
-      --data "$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')" >/dev/null ;;
-    404) curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X POST "$api/releases" \
-      --data "$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')" >/dev/null ;;
-    *) cat "$body" >&2; rm -f "$body"; return 1 ;;
-  esac
+  if [[ "$code" == 200 ]]; then
+    id=$(jq -r '.id' <"$body")
+  elif [[ "$code" == 404 ]]; then
+    # The tag endpoint hides draft releases, so a draft for this tag can exist
+    # while the lookup reports 404. Reuse that draft instead of creating a
+    # second release for the same tag.
+    id=$(curl -fsS --config "$cfg" "$api/releases?per_page=100&limit=100" \
+      | jq -r --arg t "$tag" '[.[] | select(.tag_name == $t)][0].id // empty')
+  else
+    cat "$body" >&2; rm -f "$body"; return 1
+  fi
   rm -f "$body"
+  if [[ -n "$id" ]]; then
+    curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X PATCH "$api/releases/$id" --data "$payload" >/dev/null
+  else
+    curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X POST "$api/releases" --data "$payload" >/dev/null
+  fi
 }
 publish_assets() {
   local api=$1 scheme=$2 token=$3 upload=$4 forgejo=$5; configure "$scheme" "$token"
