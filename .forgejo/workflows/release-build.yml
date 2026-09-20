@@ -171,7 +171,7 @@ jobs:
             test -n "$src"
             cp "$src" "dist/$name"
           done
-          find dist -type f ! -name SHA256SUMS -print0 | xargs -0 sha256sum | sort -k2 > dist/SHA256SUMS
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS)
           actual=$(find dist -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | tr '\n' ' ')
           wanted=$(printf '%s\n' $expected | sort | tr '\n' ' ')
           test "$actual" = "$wanted"
