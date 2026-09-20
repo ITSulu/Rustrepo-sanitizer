@@ -165,9 +165,12 @@ jobs:
           version='${{ inputs.version }}'
           expected="rustrepo-sanitizer-${version}-linux-glibc-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-glibc-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-musl-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-musl-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-amd64.deb rustrepo-sanitizer-${version}-linux-x86_64.rpm rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst rustrepo-sanitizer-${version}-alpine-x86_64.tar.gz rustrepo-sanitizer-${version}-alpine-aarch64.tar.gz rustrepo-sanitizer-${version}-windows-x86_64.zip"
           git fetch --no-tags origin "refs/tags/v${version}:refs/tags/v${version}"
-          mkdir -p dist
-          find raw -mindepth 2 -type f -exec mv -t dist/ {} +
-          find dist -name SHA256SUMS -delete
+          rm -rf dist; mkdir -p dist
+          for name in $expected; do
+            src=$(find raw -type f -name "$name" -print -quit)
+            test -n "$src"
+            cp "$src" "dist/$name"
+          done
           find dist -type f ! -name SHA256SUMS -print0 | xargs -0 sha256sum | sort -k2 > dist/SHA256SUMS
           actual=$(find dist -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | tr '\n' ' ')
           wanted=$(printf '%s\n' $expected | sort | tr '\n' ' ')
