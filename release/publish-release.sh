@@ -134,6 +134,24 @@ publish_assets "$forgejo_api" token "$FORGEJO_TOKEN" "$forgejo_api/releases" tru
 publish_assets "$github_api" Bearer "$GITHUB_TOKEN" "https://uploads.github.com/repos/ITSulu/Rustrepo-sanitizer/releases" false
 prune_assets "$forgejo_api" token "$FORGEJO_TOKEN" true
 prune_assets "$github_api" Bearer "$GITHUB_TOKEN" false
+remote_matches() {
+  # Asset downloads can serve a stale copy right after upload; retry briefly.
+  local url=$1 name=$2 expected=$3 dest actual attempt
+  dest=$(mktemp)
+  for attempt in 1 2 3 4 5 6; do
+    if curl -fsS -L "$url" -o "$dest"; then
+      if [[ "$name" == SHA256SUMS ]]; then
+        cmp -s "$dest" "$assets/SHA256SUMS" && { rm -f "$dest"; return 0; }
+      else
+        actual=$(sha256sum "$dest" | awk '{print $1}')
+        [[ "$actual" == "$expected" ]] && { rm -f "$dest"; return 0; }
+      fi
+    fi
+    sleep 5
+  done
+  rm -f "$dest"
+  return 1
+}
 verify_release() {
   local api=$1 scheme=$2 token=$3 repo_url=$4; configure "$scheme" "$token"; release=$(get "$api/releases/tags/$tag")
   jq -e --arg t "$tag" '.tag_name == $t and (.draft|not) and (.prerelease|not)' <<<"$release" >/dev/null
@@ -144,17 +162,10 @@ verify_release() {
   fi
   [[ "$remote_commit" == "$target_commit" ]] || { echo "remote tag commit $remote_commit != $target_commit" >&2; exit 1; }
   for name in "${upload_files[@]}"; do
-    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
     jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null
-    remote=$(mktemp); curl -fsS -L "$url" -o "$remote"
-    if [[ "$name" == SHA256SUMS ]]; then
-      cmp -s "$remote" "$assets/SHA256SUMS" || { echo "manifest mismatch for $repo_url" >&2; rm -f "$remote"; exit 1; }
-    else
-      actual=$(sha256sum "$remote" | awk '{print $1}')
-      expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
-      [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $name" >&2; rm -f "$remote"; exit 1; }
-    fi
-    rm -f "$remote"
+    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
+    expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
+    remote_matches "$url" "$name" "$expected" || { echo "checksum mismatch for $name" >&2; exit 1; }
   done
 }
 verify_release "$forgejo_api" token "$FORGEJO_TOKEN" https://git.itsulu.com/itsulu/Rustrepo-sanitizer.git
