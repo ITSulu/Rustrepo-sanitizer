@@ -7,6 +7,11 @@ on:
         required: true
         description: Release version without the v prefix
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  CARGO_HTTP_TIMEOUT: 180
+
 jobs:
   build:
     runs-on: garuda-16
@@ -27,10 +32,13 @@ jobs:
           ref: 'v${{ inputs.version }}'
       - name: Install Rust target
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          set -eu
+          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
+          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
+          retry sh /tmp/rustup-init.sh -y --profile minimal
           source "$HOME/.cargo/env"
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup target add '${{ matrix.target }}' --toolchain stable
+          retry rustup toolchain install stable --profile minimal --no-self-update
+          retry rustup target add '${{ matrix.target }}' --toolchain stable
       - run: |
           set -eu
           version='${{ inputs.version }}'
@@ -74,9 +82,12 @@ jobs:
           ref: 'v${{ inputs.version }}'
       - name: Install Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          set -eu
+          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
+          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
+          retry sh /tmp/rustup-init.sh -y --profile minimal
           source "$HOME/.cargo/env"
-          rustup toolchain install stable --profile minimal --no-self-update
+          retry rustup toolchain install stable --profile minimal --no-self-update
       - run: |
           set -eu
           version='${{ inputs.version }}'
@@ -127,10 +138,13 @@ jobs:
           ref: 'v${{ inputs.version }}'
       - name: Install Rust target
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          set -eu
+          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
+          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
+          retry sh /tmp/rustup-init.sh -y --profile minimal
           source "$HOME/.cargo/env"
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup target add x86_64-pc-windows-gnu --toolchain stable
+          retry rustup toolchain install stable --profile minimal --no-self-update
+          retry rustup target add x86_64-pc-windows-gnu --toolchain stable
       - run: |
           set -eu
           version='${{ inputs.version }}'
