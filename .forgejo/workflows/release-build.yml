@@ -178,7 +178,7 @@ jobs:
           export RELEASE_EXPECTED_ASSETS="$(printf '%s\n' $expected | tr ' ' ',')"
           export RELEASE_NOTES_FILE="release/${version}.md"
           export RELEASE_COMMIT="$(git rev-parse "v${version}")"
-          release/publish-release.sh "$version" dist
+          bash release/publish-release.sh "$version" dist
         env:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
