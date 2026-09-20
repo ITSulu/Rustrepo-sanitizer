@@ -80,8 +80,33 @@ jobs:
           test "$(git describe --tags --exact-match HEAD)" = v0.4.2
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
           cargo build --locked --release
-          cargo install cargo-deb cargo-generate-rpm --locked
-          RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh 0.4.2 dist
+          mkdir -p dist
+          if [ '${{ matrix.format }}' = arch ]; then
+            pkgroot="$PWD/arch-root"
+            rm -rf "$pkgroot"
+            mkdir -p "$pkgroot/usr/bin"
+            cp target/release/itsulu-repo-sanitizer "$pkgroot/usr/bin/itsulu-repo-sanitizer"
+            chmod 0755 "$pkgroot/usr/bin/itsulu-repo-sanitizer"
+            size=$(stat -c '%s' "$pkgroot/usr/bin/itsulu-repo-sanitizer")
+            cat > "$pkgroot/.PKGINFO" <<EOF
+pkgname = rustrepo-sanitizer
+pkgbase = rustrepo-sanitizer
+pkgver = 0.4.2-1
+pkgdesc = Create deterministic, sanitized AI review bundles from Git repositories
+url = https://git.itsulu.com/itsulu/Rustrepo-sanitizer
+builddate = $(date +%s)
+packager = ITSulu release automation
+size = $size
+arch = x86_64
+license = Apache-2.0
+depend = glibc
+EOF
+            tar --zstd -cf "dist/rustrepo-sanitizer-0.4.2-arch-x86_64.pkg.tar.zst" -C "$pkgroot" .PKGINFO usr
+            (cd dist && sha256sum *.pkg.tar.zst > SHA256SUMS)
+          else
+            cargo install cargo-deb cargo-generate-rpm --locked
+            RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh 0.4.2 dist
+          fi
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v3
         with:
