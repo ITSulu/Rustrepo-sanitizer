@@ -1,4 +1,5 @@
 //! Shared sanitizer core consumed by both the CLI and GUI frontends.
+pub mod help;
 pub mod sanitizer;
 pub mod security;
 
