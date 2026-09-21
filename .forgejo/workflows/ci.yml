@@ -22,9 +22,10 @@ jobs:
           components: rustfmt, clippy
       - run: apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-features
       - run: cargo check --features gui --bin rustrepo-sanitizer-gui
+      - run: cargo build -p itsulu-repo-sanitizer-web
 
   stable-check:
     runs-on: garuda-16
@@ -32,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
-      - run: cargo check --all-features
+      - run: cargo check --workspace --all-features
       - run: cargo check --features gui --bin rustrepo-sanitizer-gui
 
   gui-xa11y:

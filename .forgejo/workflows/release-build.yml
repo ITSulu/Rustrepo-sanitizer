@@ -164,8 +164,42 @@ jobs:
           name: windows-x86_64
           path: dist/
 
+  web:
+    runs-on: garuda-16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: 'v${{ inputs.version }}'
+      - name: Install Rust
+        run: |
+          set -eu
+          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
+          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
+          retry sh /tmp/rustup-init.sh -y --profile minimal
+          source "$HOME/.cargo/env"
+          retry rustup toolchain install stable --profile minimal --no-self-update
+      - run: |
+          set -eu
+          version='${{ inputs.version }}'
+          export PATH="$HOME/.cargo/bin:$PATH"
+          test "$(git describe --tags --exact-match HEAD)" = "v${version}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "$version"
+          cargo build --locked --release -p itsulu-repo-sanitizer-web
+          mkdir -p dist
+          stage=$(mktemp -d)
+          cp target/release/rustrepo-sanitizer-web "$stage/rustrepo-sanitizer-web"
+          chmod 0755 "$stage/rustrepo-sanitizer-web"
+          tar -C "$stage" -czf "dist/rustrepo-sanitizer-web-${version}-linux-glibc-x86_64.tar.gz" rustrepo-sanitizer-web
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v3
+        with:
+          name: web-x86_64
+          path: dist/
+
   publish:
-    needs: [build, packages, windows]
+    needs: [build, packages, windows, web]
     runs-on: garuda-16
     steps:
       - uses: actions/checkout@v4
@@ -179,7 +213,7 @@ jobs:
       - run: |
           set -eu
           version='${{ inputs.version }}'
-          expected="rustrepo-sanitizer-${version}-linux-glibc-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-glibc-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-musl-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-musl-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-amd64.deb rustrepo-sanitizer-${version}-linux-x86_64.rpm rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst rustrepo-sanitizer-${version}-alpine-x86_64.tar.gz rustrepo-sanitizer-${version}-alpine-aarch64.tar.gz rustrepo-sanitizer-${version}-windows-x86_64.zip"
+          expected="rustrepo-sanitizer-${version}-linux-glibc-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-glibc-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-musl-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-musl-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-amd64.deb rustrepo-sanitizer-${version}-linux-x86_64.rpm rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst rustrepo-sanitizer-${version}-alpine-x86_64.tar.gz rustrepo-sanitizer-${version}-alpine-aarch64.tar.gz rustrepo-sanitizer-${version}-windows-x86_64.zip rustrepo-sanitizer-web-${version}-linux-glibc-x86_64.tar.gz"
           git fetch --no-tags origin "refs/tags/v${version}:refs/tags/v${version}"
           rm -rf dist; mkdir -p dist
           for name in $expected; do

@@ -3,6 +3,19 @@
 This project follows the `MAJOR.MINOR.PATCH` policy documented in
 `CONTRIBUTING.md`. Every release is published from a merged pull request.
 
+## 0.6.0 (2026-09-21)
+
+- Added an Axum HTTP/API server and a Leptos server-rendered web UI at feature
+  parity with the CLI and desktop GUI, reusing the same sanitizer core.
+- Added five repository input modes: server-local path, https Git URL, uploaded
+  archive, and Forgejo/GitHub server-side selectors.
+- Added isolated, bounded, deterministically cleaned temp workspaces with
+  concurrency limits and job expiry.
+- Added security controls for URL/SSRF validation, path traversal, archive
+  traversal/symlink/budget attacks, output-name validation, and Git ref
+  injection; integration tokens remain server-side.
+- Added browser downloads for the sanitized archive and its reports.
+
 ## 0.5.0 (2026-09-21)
 
 - Added a plain-language tooltip to every GUI control, shown after a short

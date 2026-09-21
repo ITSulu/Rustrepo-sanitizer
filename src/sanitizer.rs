@@ -19,16 +19,23 @@ use crate::security::{
     validate_password,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub enum ArchiveFormat {
     #[value(name = "none")]
     None,
     Tar,
     Zip,
     #[value(name = "7z", alias = "seven-zip")]
+    #[serde(rename = "7z")]
     SevenZip,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub enum Compression {
     #[value(name = "none")]
     None,
@@ -336,12 +343,23 @@ fn ensure_external_compressor_available(name: &str) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ReportFormat {
     Markdown,
     Json,
     None,
 }
+
+/// Report members embedded in every archive. Shared so the web frontend can
+/// offer them for download without duplicating the names.
+pub const REPORT_MEMBERS: &[&str] = &[
+    "SANITIZATION-REPORT.md",
+    "SANITIZATION-REPORT.json",
+    "REPOSITORY-INVENTORY.md",
+    "SECRET-AUDIT.md",
+    "manifest.json",
+];
 pub struct Config {
     pub repository: PathBuf,
     pub output: PathBuf,
