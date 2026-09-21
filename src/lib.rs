@@ -279,9 +279,9 @@ mod tests {
     }
 
     #[test]
-    fn current_release_metadata_targets_0_4_2() {
+    fn current_release_metadata_targets_0_5_0() {
         let manifest = include_str!("../Cargo.toml");
-        assert!(manifest.contains("version = \"0.4.2\""));
+        assert!(manifest.contains("version = \"0.5.0\""));
     }
 
     #[test]
