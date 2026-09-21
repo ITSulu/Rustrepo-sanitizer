@@ -1,3 +1,9 @@
+[workspace]
+members = ["crates/web"]
+# The Leptos web UI is a WASM (cdylib) crate built with Trunk; it is not part
+# of the native workspace build.
+exclude = ["crates/web-ui"]
+
 [package]
 name = "itsulu-repo-sanitizer"
 version = "0.5.0"
