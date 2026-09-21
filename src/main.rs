@@ -1,6 +1,7 @@
 use std::{io::Read, path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use itsulu_repo_sanitizer::help;
 use itsulu_repo_sanitizer::sanitizer::{
     default_output_path, run, ArchiveFormat, Compression, Config, PasswordPolicy, ReportFormat,
 };
@@ -18,57 +19,143 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "Create a sanitized, reproducible review bundle from a Git repository")]
     Sanitize(SanitizeArgs),
+    #[command(about = "List supported archive and compression formats")]
     ListFormats,
 }
 
 #[derive(Args)]
 struct SanitizeArgs {
-    #[arg(default_value = ".")]
+    #[arg(default_value = ".", help = help::REPOSITORY, help_heading = help::GROUP_INPUT)]
     repository: PathBuf,
-    #[arg(short, long)]
-    output: Option<PathBuf>,
-    #[arg(long, visible_alias = "format", value_enum, default_value_t = ArchiveFormat::Tar)]
-    archive: ArchiveFormat,
-    #[arg(long, value_enum, default_value_t = Compression::Zstd)]
-    compression: Compression,
-    #[arg(long, value_enum, default_value_t = CliReportFormat::Markdown)]
-    report: CliReportFormat,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = help::INCLUDE_UNTRACKED,
+        help_heading = help::GROUP_INPUT
+    )]
     include_untracked: bool,
-    #[arg(long = "max-file-size", default_value_t = 10 * 1024 * 1024)]
-    max_file_size: u64,
-    #[arg(long = "exclude")]
-    exclude: Vec<String>,
-    #[arg(long = "include")]
-    include: Vec<String>,
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
-    redact: bool,
-    #[arg(long = "no-redact", action = clap::ArgAction::SetTrue)]
-    no_redact: bool,
-    #[arg(long)]
-    fail_on_secret: bool,
-    #[arg(long)]
-    dry_run: bool,
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(short, long, help = help::OUTPUT, help_heading = help::GROUP_OUTPUT)]
+    output: Option<PathBuf>,
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        help = help::TIMESTAMP_NAME,
+        help_heading = help::GROUP_OUTPUT
+    )]
     timestamp_name: bool,
-    #[arg(long, conflicts_with = "password_stdin")]
+    #[arg(
+        long,
+        visible_alias = "format",
+        value_enum,
+        default_value_t = ArchiveFormat::Tar,
+        help = help::ARCHIVE,
+        help_heading = help::GROUP_ARCHIVE
+    )]
+    archive: ArchiveFormat,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Compression::Zstd,
+        help = help::COMPRESSION,
+        help_heading = help::GROUP_ARCHIVE
+    )]
+    compression: Compression,
+    #[arg(long = "include", help = help::INCLUDE, help_heading = help::GROUP_FILTERS)]
+    include: Vec<String>,
+    #[arg(long = "exclude", help = help::EXCLUDE, help_heading = help::GROUP_FILTERS)]
+    exclude: Vec<String>,
+    #[arg(
+        long = "max-file-size",
+        default_value_t = 10 * 1024 * 1024,
+        help = help::MAX_FILE_SIZE,
+        help_heading = help::GROUP_FILTERS
+    )]
+    max_file_size: u64,
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        help = help::REDACT,
+        help_heading = help::GROUP_REDACTION
+    )]
+    redact: bool,
+    #[arg(
+        long = "no-redact",
+        action = clap::ArgAction::SetTrue,
+        help = help::NO_REDACT,
+        help_heading = help::GROUP_REDACTION
+    )]
+    no_redact: bool,
+    #[arg(long, help = help::FAIL_ON_SECRET, help_heading = help::GROUP_REDACTION)]
+    fail_on_secret: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = CliReportFormat::Markdown,
+        help = help::REPORT,
+        help_heading = help::GROUP_REPORTS
+    )]
+    report: CliReportFormat,
+    #[arg(long, help = help::DRY_RUN, help_heading = help::GROUP_REPORTS)]
+    dry_run: bool,
+    #[arg(
+        long,
+        conflicts_with = "password_stdin",
+        help = help::PASSWORD_FILE,
+        help_heading = help::GROUP_SECURITY
+    )]
     password_file: Option<PathBuf>,
-    #[arg(long, conflicts_with = "password_file")]
+    #[arg(
+        long,
+        conflicts_with = "password_file",
+        help = help::PASSWORD_STDIN,
+        help_heading = help::GROUP_SECURITY
+    )]
     password_stdin: bool,
-    #[arg(long = "password-min-length", default_value_t = 8)]
+    #[arg(
+        long = "password-min-length",
+        default_value_t = 8,
+        help = help::PASSWORD_MIN_LENGTH,
+        help_heading = help::GROUP_SECURITY
+    )]
     password_min_length: usize,
-    #[arg(long = "password-require-uppercase", default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(
+        long = "password-require-uppercase",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        help = help::PASSWORD_REQUIRE_UPPERCASE,
+        help_heading = help::GROUP_SECURITY
+    )]
     password_require_uppercase: bool,
-    #[arg(long = "password-require-lowercase", default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(
+        long = "password-require-lowercase",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        help = help::PASSWORD_REQUIRE_LOWERCASE,
+        help_heading = help::GROUP_SECURITY
+    )]
     password_require_lowercase: bool,
-    #[arg(long = "password-require-number", default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(
+        long = "password-require-number",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        help = help::PASSWORD_REQUIRE_NUMBER,
+        help_heading = help::GROUP_SECURITY
+    )]
     password_require_number: bool,
-    #[arg(long = "password-require-special", default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(
+        long = "password-require-special",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        help = help::PASSWORD_REQUIRE_SPECIAL,
+        help_heading = help::GROUP_SECURITY
+    )]
     password_require_special: bool,
-    #[arg(short, long)]
+    #[arg(short, long, help = help::VERBOSE, help_heading = help::GROUP_ADVANCED)]
     verbose: bool,
-    #[arg(short, long)]
+    #[arg(short, long, help = help::QUIET, help_heading = help::GROUP_ADVANCED)]
     quiet: bool,
 }
 
