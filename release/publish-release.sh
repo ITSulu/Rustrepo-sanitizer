@@ -52,18 +52,39 @@ fi
 cfg=$(mktemp); chmod 600 "$cfg"; trap 'rm -f "$cfg"' EXIT
 configure() { printf 'header = "Authorization: %s %s"\n' "$1" "$2" > "$cfg"; }
 get() { curl -fsS --config "$cfg" "$1"; }
+retry() {
+  # Release hosts occasionally fail DNS/connectivity; retry transient errors.
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if "$@"; then return 0; fi
+    sleep 5
+  done
+  return 1
+}
 ensure_release() {
   local api=$1 scheme=$2 token=$3; configure "$scheme" "$token"
-  local body code; body=$(mktemp)
+  local body code id payload
+  payload=$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" \
+    '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')
+  body=$(mktemp)
   code=$(curl -sS --config "$cfg" -o "$body" -w '%{http_code}' "$api/releases/tags/$tag")
-  case "$code" in
-    200) local id; id=$(jq -r '.id' <"$body"); curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X PATCH "$api/releases/$id" \
-      --data "$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')" >/dev/null ;;
-    404) curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X POST "$api/releases" \
-      --data "$(jq -n --arg t "$tag" --arg c "$target_commit" --arg b "$notes" '{tag_name:$t,name:$t,target_commitish:$c,body:$b,draft:false,prerelease:false}')" >/dev/null ;;
-    *) cat "$body" >&2; rm -f "$body"; return 1 ;;
-  esac
+  if [[ "$code" == 200 ]]; then
+    id=$(jq -r '.id' <"$body")
+  elif [[ "$code" == 404 ]]; then
+    # The tag endpoint hides draft releases, so a draft for this tag can exist
+    # while the lookup reports 404. Reuse that draft instead of creating a
+    # second release for the same tag.
+    id=$(curl -fsS --config "$cfg" "$api/releases?per_page=100&limit=100" \
+      | jq -r --arg t "$tag" '[.[] | select(.tag_name == $t)][0].id // empty')
+  else
+    cat "$body" >&2; rm -f "$body"; return 1
+  fi
   rm -f "$body"
+  if [[ -n "$id" ]]; then
+    curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X PATCH "$api/releases/$id" --data "$payload" >/dev/null
+  else
+    curl -fsS --config "$cfg" -H 'Content-Type: application/json' -X POST "$api/releases" --data "$payload" >/dev/null
+  fi
 }
 publish_assets() {
   local api=$1 scheme=$2 token=$3 upload=$4 forgejo=$5; configure "$scheme" "$token"
@@ -74,7 +95,7 @@ publish_assets() {
     asset_id=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$release" | head -1)
     if [[ -n "$asset_id" ]]; then
       url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
-      remote=$(mktemp); curl -fsS -L "$url" -o "$remote"
+      remote=$(mktemp); retry curl -fsS -L "$url" -o "$remote"
       if [[ "$name" == SHA256SUMS ]]; then
         cmp -s "$remote" "$assets/SHA256SUMS" && { rm -f "$remote"; continue; }
       else
@@ -83,22 +104,70 @@ publish_assets() {
       fi
       rm -f "$remote"
       if [[ "$forgejo" == true ]]; then
-        curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
+        retry curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
       else
-        curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
+        retry curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
       fi
     fi
     if [[ "$forgejo" == true ]]; then
-      curl -fsS --config "$cfg" -F "attachment=@$file" "$upload/$id/assets?name=$name" >/dev/null
+      retry curl -fsS --config "$cfg" -F "attachment=@$file" "$upload/$id/assets?name=$name" >/dev/null
     else
-      curl -fsS --config "$cfg" -H 'Content-Type: application/octet-stream' --data-binary "@$file" "$upload/$id/assets?name=$name" >/dev/null
+      retry curl -fsS --config "$cfg" -H 'Content-Type: application/octet-stream' --data-binary "@$file" "$upload/$id/assets?name=$name" >/dev/null
     fi
   done
 }
+prune_assets() {
+  local api=$1 scheme=$2 token=$3 forgejo=$4; configure "$scheme" "$token"
+  local release id name asset_id keep u
+  release=$(get "$api/releases/tags/$tag"); id=$(jq -r '.id' <<<"$release")
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    keep=false
+    for u in "${upload_files[@]}"; do
+      [[ "$name" == "$u" ]] && keep=true
+    done
+    [[ "$keep" == true ]] && continue
+    asset_id=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .id' <<<"$release" | head -1)
+    [[ -n "$asset_id" ]] || continue
+    if [[ "$forgejo" == true ]]; then
+      retry curl -fsS --config "$cfg" -X DELETE "$api/releases/$id/assets/$asset_id" >/dev/null
+    else
+      retry curl -fsS --config "$cfg" -X DELETE "https://api.github.com/repos/ITSulu/Rustrepo-sanitizer/releases/assets/$asset_id" >/dev/null
+    fi
+  done < <(jq -r '.assets[].name' <<<"$release")
+}
+
 ensure_release "$forgejo_api" token "$FORGEJO_TOKEN"
 ensure_release "$github_api" Bearer "$GITHUB_TOKEN"
 publish_assets "$forgejo_api" token "$FORGEJO_TOKEN" "$forgejo_api/releases" true
 publish_assets "$github_api" Bearer "$GITHUB_TOKEN" "https://uploads.github.com/repos/ITSulu/Rustrepo-sanitizer/releases" false
+prune_assets "$forgejo_api" token "$FORGEJO_TOKEN" true
+prune_assets "$github_api" Bearer "$GITHUB_TOKEN" false
+remote_matches() {
+  # After an asset is replaced, downloads (and cached release metadata) can keep
+  # serving the previous copy for several minutes. Re-resolve the asset each
+  # attempt and keep retrying until the mirror reports the expected content.
+  local api=$1 name=$2 expected=$3 attempt release url dest actual
+  for attempt in $(seq 1 20); do
+    release=$(get "$api/releases/tags/$tag")
+    if ! jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null; then
+      sleep 15; continue
+    fi
+    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
+    dest=$(mktemp)
+    if curl -fsS -L "$url" -o "$dest"; then
+      if [[ "$name" == SHA256SUMS ]]; then
+        cmp -s "$dest" "$assets/SHA256SUMS" && { rm -f "$dest"; return 0; }
+      else
+        actual=$(sha256sum "$dest" | awk '{print $1}')
+        [[ "$actual" == "$expected" ]] && { rm -f "$dest"; return 0; }
+      fi
+    fi
+    rm -f "$dest"
+    sleep 15
+  done
+  return 1
+}
 verify_release() {
   local api=$1 scheme=$2 token=$3 repo_url=$4; configure "$scheme" "$token"; release=$(get "$api/releases/tags/$tag")
   jq -e --arg t "$tag" '.tag_name == $t and (.draft|not) and (.prerelease|not)' <<<"$release" >/dev/null
@@ -109,17 +178,8 @@ verify_release() {
   fi
   [[ "$remote_commit" == "$target_commit" ]] || { echo "remote tag commit $remote_commit != $target_commit" >&2; exit 1; }
   for name in "${upload_files[@]}"; do
-    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$release")
-    jq -e --arg n "$name" '.assets[] | select(.name == $n)' <<<"$release" >/dev/null
-    remote=$(mktemp); curl -fsS -L "$url" -o "$remote"
-    if [[ "$name" == SHA256SUMS ]]; then
-      cmp -s "$remote" "$assets/SHA256SUMS" || { echo "manifest mismatch for $repo_url" >&2; rm -f "$remote"; exit 1; }
-    else
-      actual=$(sha256sum "$remote" | awk '{print $1}')
-      expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
-      [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $name" >&2; rm -f "$remote"; exit 1; }
-    fi
-    rm -f "$remote"
+    expected=$(awk -v n="$name" '$2 == n {print $1}' "$assets/SHA256SUMS")
+    remote_matches "$api" "$name" "$expected" || { echo "checksum mismatch for $name" >&2; exit 1; }
   done
 }
 verify_release "$forgejo_api" token "$FORGEJO_TOKEN" https://git.itsulu.com/itsulu/Rustrepo-sanitizer.git

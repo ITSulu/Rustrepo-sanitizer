@@ -1,13 +1,16 @@
 name: Release artifacts
 
 on:
-  push:
-    branches: [release-backfill-042]
   workflow_dispatch:
     inputs:
       version:
         required: true
         description: Release version without the v prefix
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  CARGO_HTTP_TIMEOUT: 180
 
 jobs:
   build:
@@ -24,15 +27,24 @@ jobs:
           - { name: alpine-aarch64, target: aarch64-unknown-linux-musl, platform: alpine, arch: aarch64 }
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v0.4.2 }
+        with:
+          fetch-depth: 1
+          ref: 'v${{ inputs.version }}'
       - name: Install Rust target
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup target add '${{ matrix.target }}' --toolchain stable
+          set -eu
+          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
+          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
+          retry sh /tmp/rustup-init.sh -y --profile minimal
+          source "$HOME/.cargo/env"
+          retry rustup toolchain install stable --profile minimal --no-self-update
+          retry rustup target add '${{ matrix.target }}' --toolchain stable
       - run: |
           set -eu
-          test "$(git describe --tags --exact-match HEAD)" = v0.4.2
-          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
+          version='${{ inputs.version }}'
+          export PATH="$HOME/.cargo/bin:$PATH"
+          test "$(git describe --tags --exact-match HEAD)" = "v${version}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "$version"
           apt-get update
           apt-get install -y --no-install-recommends python3-pip
           python3 -m pip install --break-system-packages ziglang
@@ -43,10 +55,10 @@ jobs:
             mkdir -p cross-stage
             cp target/${{ matrix.target }}/release/itsulu-repo-sanitizer cross-stage/itsulu-repo-sanitizer
             chmod 0755 cross-stage/itsulu-repo-sanitizer
-            tar -C cross-stage -czf "dist/rustrepo-sanitizer-0.4.2-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" itsulu-repo-sanitizer
+            tar -C cross-stage -czf "dist/rustrepo-sanitizer-${version}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" itsulu-repo-sanitizer
             (cd dist && sha256sum $(find . -maxdepth 1 -type f -printf '%f\n' | sort) > SHA256SUMS)
           else
-            RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh 0.4.2 dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
+            RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh "$version" dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
           fi
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v3
@@ -65,16 +77,52 @@ jobs:
           - { name: arch-x86_64, format: arch }
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v0.4.2 }
+        with:
+          fetch-depth: 1
+          ref: 'v${{ inputs.version }}'
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --no-self-update
+        run: |
+          set -eu
+          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
+          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
+          retry sh /tmp/rustup-init.sh -y --profile minimal
+          source "$HOME/.cargo/env"
+          retry rustup toolchain install stable --profile minimal --no-self-update
       - run: |
           set -eu
-          test "$(git describe --tags --exact-match HEAD)" = v0.4.2
-          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
+          version='${{ inputs.version }}'
+          export PATH="$HOME/.cargo/bin:$PATH"
+          test "$(git describe --tags --exact-match HEAD)" = "v${version}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "$version"
           cargo build --locked --release
-          cargo install cargo-deb cargo-generate-rpm --locked
-          RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh 0.4.2 dist
+          mkdir -p dist
+          if [ '${{ matrix.format }}' = arch ]; then
+            apt-get update
+            apt-get install -y --no-install-recommends zstd
+            pkgroot="$PWD/arch-root"
+            rm -rf "$pkgroot"
+            mkdir -p "$pkgroot/usr/bin"
+            cp target/release/itsulu-repo-sanitizer "$pkgroot/usr/bin/itsulu-repo-sanitizer"
+            chmod 0755 "$pkgroot/usr/bin/itsulu-repo-sanitizer"
+            size=$(stat -c '%s' "$pkgroot/usr/bin/itsulu-repo-sanitizer")
+            printf '%s\n' \
+              'pkgname = rustrepo-sanitizer' \
+              'pkgbase = rustrepo-sanitizer' \
+              "pkgver = ${version}-1" \
+              'pkgdesc = Create deterministic, sanitized AI review bundles from Git repositories' \
+              'url = https://git.itsulu.com/itsulu/Rustrepo-sanitizer' \
+              "builddate = $(date +%s)" \
+              'packager = ITSulu release automation' \
+              "size = $size" \
+              'arch = x86_64' \
+              'license = Apache-2.0' \
+              'depend = glibc' > "$pkgroot/.PKGINFO"
+            tar --zstd -cf "dist/rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst" -C "$pkgroot" .PKGINFO usr
+            (cd dist && sha256sum *.pkg.tar.zst > SHA256SUMS)
+          else
+            cargo install cargo-deb cargo-generate-rpm --locked
+            RELEASE_PLATFORM=linux RELEASE_ARCH=x86_64 RELEASE_FORMATS='${{ matrix.format }}' release/build-artifacts.sh "$version" dist
+          fi
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v3
         with:
@@ -85,22 +133,31 @@ jobs:
     runs-on: garuda-16
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v0.4.2 }
+        with:
+          fetch-depth: 1
+          ref: 'v${{ inputs.version }}'
       - name: Install Rust target
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup target add x86_64-pc-windows-gnu --toolchain stable
+          set -eu
+          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
+          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
+          retry sh /tmp/rustup-init.sh -y --profile minimal
+          source "$HOME/.cargo/env"
+          retry rustup toolchain install stable --profile minimal --no-self-update
+          retry rustup target add x86_64-pc-windows-gnu --toolchain stable
       - run: |
           set -eu
-          test "$(git describe --tags --exact-match HEAD)" = v0.4.2
-          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = 0.4.2
+          version='${{ inputs.version }}'
+          export PATH="$HOME/.cargo/bin:$PATH"
+          test "$(git describe --tags --exact-match HEAD)" = "v${version}"
+          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "$version"
           apt-get update
-          apt-get install -y --no-install-recommends python3-pip
+          apt-get install -y --no-install-recommends python3-pip zip
           python3 -m pip install --break-system-packages ziglang
           command -v cargo-zigbuild >/dev/null || cargo install cargo-zigbuild --locked
           cargo zigbuild --locked --release --target x86_64-pc-windows-gnu
           mkdir -p dist
-          zip -j dist/rustrepo-sanitizer-0.4.2-windows-x86_64.zip target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
+          zip -j "dist/rustrepo-sanitizer-${version}-windows-x86_64.zip" target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
           (cd dist && sha256sum *.zip > SHA256SUMS)
       - uses: actions/upload-artifact@v3
         with:
@@ -111,19 +168,33 @@ jobs:
     needs: [build, packages, windows]
     runs-on: garuda-16
     steps:
-      - uses: actions/download-artifact@v3
-        with: { path: dist, merge-multiple: true }
       - uses: actions/checkout@v4
-        with: { fetch-depth: 1, ref: v0.4.2 }
+        with:
+          fetch-depth: 0
+      - name: Install publisher dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends jq
+      - uses: actions/download-artifact@v3
+        with:
+          path: raw
       - run: |
           set -eu
-          version=0.4.2
+          version='${{ inputs.version }}'
           expected="rustrepo-sanitizer-${version}-linux-glibc-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-glibc-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-musl-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-musl-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-amd64.deb rustrepo-sanitizer-${version}-linux-x86_64.rpm rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst rustrepo-sanitizer-${version}-alpine-x86_64.tar.gz rustrepo-sanitizer-${version}-alpine-aarch64.tar.gz rustrepo-sanitizer-${version}-windows-x86_64.zip"
-          find dist -type f ! -name SHA256SUMS -print0 | xargs -0 sha256sum | sort -k2 > dist/SHA256SUMS
+          git fetch --no-tags origin "refs/tags/v${version}:refs/tags/v${version}"
+          rm -rf dist; mkdir -p dist
+          for name in $expected; do
+            src=$(find raw -type f -name "$name" -print -quit)
+            test -n "$src"
+            cp "$src" "dist/$name"
+          done
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS)
           actual=$(find dist -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | tr '\n' ' ')
           wanted=$(printf '%s\n' $expected | sort | tr '\n' ' ')
           test "$actual" = "$wanted"
-          RELEASE_EXPECTED_ASSETS="$(printf '%s\n' $expected | tr ' ' ',')" RELEASE_NOTES_FILE=release/0.4.2.md RELEASE_COMMIT="$(git rev-parse v0.4.2)" release/publish-release.sh 0.4.2 dist
+          export RELEASE_EXPECTED_ASSETS="$(printf '%s\n' $expected | tr ' ' ',')"
+          export RELEASE_NOTES_FILE="release/${version}.md"
+          export RELEASE_COMMIT="$(git rev-parse "v${version}^{commit}")"
+          bash release/publish-release.sh "$version" dist
         env:
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORGEJO_TOKEN: ${{ secrets.RUSTREPO_FORGEJO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RUSTREPO_GITHUB_TOKEN }}

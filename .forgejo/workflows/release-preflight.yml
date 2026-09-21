@@ -1,0 +1,26 @@
+name: Release preflight
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: garuda-16
+    steps:
+      - name: Validate publisher credentials
+        run: |
+          set -eu
+          test -n "${FORGEJO_TOKEN:-}" || { echo "FORGEJO_TOKEN not resolved"; exit 1; }
+          test -n "${GITHUB_TOKEN:-}" || { echo "GITHUB_TOKEN not resolved"; exit 1; }
+          echo "forgejo token length ${#FORGEJO_TOKEN}"
+          echo "github token length ${#GITHUB_TOKEN}"
+          code=$(curl -sS -o /tmp/fj.json -w '%{http_code}' -H "Authorization: token $FORGEJO_TOKEN" https://git.itsulu.com/api/v1/repos/itsulu/Rustrepo-sanitizer)
+          echo "forgejo api http $code"
+          test "$code" = 200
+          code=$(curl -sS -o /tmp/gh.json -w '%{http_code}' -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/ITSulu/Rustrepo-sanitizer)
+          echo "github api http $code"
+          test "$code" = 200
+          echo "preflight ok"
+        env:
+          FORGEJO_TOKEN: ${{ secrets.RUSTREPO_FORGEJO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RUSTREPO_GITHUB_TOKEN }}
