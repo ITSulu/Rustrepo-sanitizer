@@ -21,7 +21,7 @@ The server binds to `127.0.0.1:8787` by default. Open
 |---|---|
 | `RUSTREPO_WEB_BIND` | Bind address, e.g. `0.0.0.0:8787`. Prefer loopback. |
 | `RUSTREPO_WEB_ROOT` | Root for job workspaces and uploads (default: temp dir). |
-| `RUSTREPO_WEB_TOKEN` | When set, `/api/*` requires `Authorization: Bearer <token>`. |
+| `RUSTREPO_WEB_TOKEN` | When set, `/api/*` requires `Authorization: Bearer <token>` and the UI requires signing in at `/ui/login` (an HttpOnly session cookie). |
 | `RUSTREPO_WEB_LOCAL_ROOTS` | Colon-separated roots allowed for the server-local path input mode. |
 | `RUSTREPO_WEB_FORGEJO_BASE` | Forgejo base URL, e.g. `https://git.itsulu.com`. |
 | `RUSTREPO_WEB_FORGEJO_TOKEN` | Forgejo token (server-side only). |
