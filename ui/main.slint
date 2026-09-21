@@ -81,6 +81,8 @@ component HelpfulButton inherits Rectangle {
     hover := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         btn := Button {
+            width: 100%;
+            height: 100%;
             text: root.text;
             enabled: root.enabled;
             accessible-id: root.a11y-id;
@@ -105,6 +107,8 @@ component HelpfulCheckBox inherits Rectangle {
     hover := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         box := CheckBox {
+            width: 100%;
+            height: 100%;
             text: root.text;
             checked <=> root.checked;
             enabled: root.enabled;
@@ -127,10 +131,13 @@ component HelpfulComboBox inherits Rectangle {
     callback selection-changed(int);
     preferred-width: combo.preferred-width;
     preferred-height: combo.preferred-height;
+    horizontal-stretch: 1;
     property <bool> hovered: hover.has-hover;
     hover := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         combo := ComboBox {
+            width: 100%;
+            height: 100%;
             model: root.model;
             current-index <=> root.current-index;
             enabled: root.enabled;
@@ -154,10 +161,13 @@ component HelpfulLineEdit inherits Rectangle {
     callback user-edited(string);
     preferred-width: edit.preferred-width;
     preferred-height: edit.preferred-height;
+    horizontal-stretch: 1;
     property <bool> hovered: hover.has-hover;
     hover := TouchArea {
         mouse-cursor: MouseCursor.text;
         edit := LineEdit {
+            width: 100%;
+            height: 100%;
             text <=> root.text;
             placeholder-text: root.placeholder-text;
             input-type: root.input-type;
@@ -173,7 +183,6 @@ component HelpfulLineEdit inherits Rectangle {
 component HelpfulLabel inherits Rectangle {
     in property <string> text;
     in property <string> help: "";
-    in property <string> a11y-id: "";
     in property <string> a11y-label: "";
     in property <color> text-color: #000000;
     preferred-width: label.preferred-width;
@@ -182,6 +191,8 @@ component HelpfulLabel inherits Rectangle {
     hover := TouchArea {
         mouse-cursor: MouseCursor.default;
         label := Text {
+            width: 100%;
+            height: 100%;
             text: root.text;
             color: root.text-color;
             accessible-label: root.a11y-label;
