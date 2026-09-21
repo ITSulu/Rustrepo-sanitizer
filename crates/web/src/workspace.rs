@@ -15,6 +15,8 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 #[derive(Clone, Debug)]
 pub struct Limits {
     pub max_concurrent_jobs: usize,
+    /// Upper bound on live job entries (queued + running + awaiting download).
+    pub max_jobs: usize,
     pub max_upload_bytes: u64,
     pub max_repo_bytes: u64,
     pub job_ttl: Duration,
@@ -24,9 +26,10 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_concurrent_jobs: 4,
+            max_jobs: 64,
             max_upload_bytes: 512 * 1024 * 1024,
             max_repo_bytes: 2 * 1024 * 1024 * 1024,
-            job_ttl: Duration::from_secs(60 * 60),
+            job_ttl: Duration::from_secs(30 * 60),
         }
     }
 }
@@ -110,10 +113,13 @@ impl WorkspaceManager {
         fn walk(path: &Path, total: &mut u64) {
             if let Ok(entries) = std::fs::read_dir(path) {
                 for entry in entries.flatten() {
-                    if let Ok(meta) = entry.metadata() {
+                    if let Ok(meta) = std::fs::symlink_metadata(entry.path()) {
+                        if meta.file_type().is_symlink() {
+                            continue;
+                        }
                         if meta.is_dir() {
                             walk(&entry.path(), total);
-                        } else {
+                        } else if meta.is_file() {
                             *total = total.saturating_add(meta.len());
                         }
                     }

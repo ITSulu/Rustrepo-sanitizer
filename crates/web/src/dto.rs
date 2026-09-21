@@ -362,10 +362,9 @@ pub fn capabilities_view() -> CapabilitiesView {
                     entry("password_require_special", h::PASSWORD_REQUIRE_SPECIAL),
                 ],
             ),
-            group(
-                h::GROUP_ADVANCED,
-                vec![entry("verbose", h::VERBOSE), entry("quiet", h::QUIET)],
-            ),
+            // `--verbose`/`--quiet` are CLI-only diagnostics; the server always
+            // runs quietly and reports through the job API, so they are not
+            // advertised here.
         ],
     };
 

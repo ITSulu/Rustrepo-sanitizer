@@ -24,7 +24,12 @@ fn init_executor() {
 
 struct FakeRunner;
 impl CloneRunner for FakeRunner {
-    fn clone(&self, _argv: Vec<String>, _dest: PathBuf) -> BoxFuture<'static, Result<(), String>> {
+    fn clone(
+        &self,
+        _argv: Vec<String>,
+        _env: Vec<(String, String)>,
+        _dest: PathBuf,
+    ) -> BoxFuture<'static, Result<(), String>> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -138,6 +143,351 @@ async fn api_requires_the_bearer_token_when_configured() {
         .await
         .unwrap();
     assert_eq!(authorized.status(), StatusCode::OK);
+}
+
+fn form_request(uri: &str, fields: &[(&str, &str)]) -> Request<Body> {
+    let boundary = "FORM";
+    let mut body = String::new();
+    for (name, value) in fields {
+        body.push_str(&format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+        ));
+    }
+    body.push_str(&format!("--{boundary}--\r\n"));
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap()
+}
+
+async fn wait_for_job(state: &Arc<AppState>, id: &str) -> serde_json::Value {
+    let mut status = serde_json::Value::Null;
+    for _ in 0..300 {
+        let response = build_router(state.clone())
+            .oneshot(json_request(
+                "GET",
+                &format!("/api/jobs/{id}"),
+                serde_json::Value::Null,
+                None,
+            ))
+            .await
+            .unwrap();
+        status = body_json(response).await;
+        if status["status"]["state"]
+            .as_str()
+            .is_some_and(|s| matches!(s, "completed" | "failed" | "cancelled"))
+        {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    status
+}
+
+#[tokio::test]
+async fn ssr_form_submission_creates_and_completes_a_job() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = git_repo(root.path());
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    init_executor();
+    let path = repo.to_string_lossy().into_owned();
+    let response = build_router(state.clone())
+        .oneshot(form_request(
+            "/ui/jobs",
+            &[
+                ("mode", "local_path"),
+                ("path", &path),
+                ("format", "tar"),
+                ("compression", "zstd"),
+                ("report", "markdown"),
+                ("timestamp_name", "1"),
+                ("redact", "1"),
+            ],
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let location = response
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(location.starts_with("/ui/jobs/"), "{location}");
+    let id = location.trim_start_matches("/ui/jobs/").to_owned();
+    let status = wait_for_job(&state, &id).await;
+    assert_eq!(status["status"]["state"], "completed", "{status}");
+}
+
+#[tokio::test]
+async fn ssr_validation_error_re_renders_alert_and_echoes_values() {
+    let root = tempfile::tempdir().unwrap();
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    init_executor();
+    let response = build_router(state.clone())
+        .oneshot(form_request(
+            "/ui/jobs",
+            &[("mode", "forgejo"), ("forgejo_repo", "../etc")],
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8_lossy(&response.into_body().collect().await.unwrap().to_bytes())
+        .into_owned();
+    assert!(html.contains("id=\"form-error\""), "{html}");
+    assert!(html.contains("role=\"alert\""));
+    // The submitted value is echoed back.
+    assert!(
+        html.contains("value=\"../etc\""),
+        "value not echoed: {html}"
+    );
+}
+
+#[tokio::test]
+async fn dry_run_completes_without_an_archive() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = git_repo(root.path());
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    let create = build_router(state.clone())
+        .oneshot(json_request(
+            "POST",
+            "/api/jobs",
+            serde_json::json!({
+                "input": {"mode": "local_path", "path": repo.to_string_lossy()},
+                "options": {"dry_run": true}
+            }),
+            None,
+        ))
+        .await
+        .unwrap();
+    let id = body_json(create).await["id"].as_str().unwrap().to_owned();
+    let status = wait_for_job(&state, &id).await;
+    assert_eq!(status["status"]["state"], "completed", "{status}");
+    assert_eq!(status["status"]["dry_run"], true);
+    assert!(status["status"]["archive"].is_null());
+
+    let download = build_router(state.clone())
+        .oneshot(json_request(
+            "GET",
+            &format!("/api/jobs/{id}/download"),
+            serde_json::Value::Null,
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn fail_on_secret_fails_the_job() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = git_repo(root.path());
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    let create = build_router(state.clone())
+        .oneshot(json_request(
+            "POST",
+            "/api/jobs",
+            serde_json::json!({
+                "input": {"mode": "local_path", "path": repo.to_string_lossy()},
+                "options": {"fail_on_secret": true}
+            }),
+            None,
+        ))
+        .await
+        .unwrap();
+    let id = body_json(create).await["id"].as_str().unwrap().to_owned();
+    let status = wait_for_job(&state, &id).await;
+    assert_eq!(status["status"]["state"], "failed", "{status}");
+}
+
+#[tokio::test]
+async fn cancel_endpoint_reports_unknown_and_known_jobs() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = git_repo(root.path());
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    let create = build_router(state.clone())
+        .oneshot(json_request(
+            "POST",
+            "/api/jobs",
+            serde_json::json!({
+                "input": {"mode": "local_path", "path": repo.to_string_lossy()},
+                "options": {}
+            }),
+            None,
+        ))
+        .await
+        .unwrap();
+    let id = body_json(create).await["id"].as_str().unwrap().to_owned();
+    let known = build_router(state.clone())
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/jobs/{id}/cancel"),
+            serde_json::Value::Null,
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(known.status(), StatusCode::ACCEPTED);
+    let unknown = build_router(state.clone())
+        .oneshot(json_request(
+            "POST",
+            "/api/jobs/does-not-exist/cancel",
+            serde_json::Value::Null,
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn integration_pages_report_unconfigured_state() {
+    let root = tempfile::tempdir().unwrap();
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    for path in ["/ui/integrations/forgejo", "/ui/integrations/github"] {
+        let response = build_router(state.clone())
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html =
+            String::from_utf8_lossy(&response.into_body().collect().await.unwrap().to_bytes())
+                .into_owned();
+        assert!(html.contains("not configured"), "{path}: {html}");
+        assert!(html.contains("role=\"alert\""));
+    }
+}
+
+#[tokio::test]
+async fn all_api_routes_are_protected_by_the_token() {
+    let root = tempfile::tempdir().unwrap();
+    let state = test_state(root.path(), Some("tok"), IntegrationsConfig::default());
+    for (method, path) in [
+        ("GET", "/api/capabilities"),
+        ("GET", "/api/integrations"),
+        ("POST", "/api/jobs"),
+        ("GET", "/api/jobs/x"),
+    ] {
+        let response = build_router(state.clone())
+            .oneshot(json_request(method, path, serde_json::json!({}), None))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{method} {path} must require a token"
+        );
+    }
+}
+
+fn multipart_request(uri: &str, field: &str, value: &str) -> Request<Body> {
+    let boundary = "XBOUND";
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"\r\n\r\n{value}\r\n--{boundary}--\r\n"
+    );
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn ui_routes_require_authentication_when_a_token_is_configured() {
+    let root = tempfile::tempdir().unwrap();
+    let state = test_state(root.path(), Some("s3cret"), IntegrationsConfig::default());
+    init_executor();
+
+    // The UI root redirects an unauthenticated browser to the login page.
+    let index = build_router(state.clone())
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(index.status(), StatusCode::SEE_OTHER);
+    assert_eq!(index.headers().get("location").unwrap(), "/ui/login");
+
+    // Download routes are not reachable without auth.
+    let download = build_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/ui/jobs/x/download")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::SEE_OTHER);
+
+    // A wrong login token is rejected.
+    let bad = build_router(state.clone())
+        .oneshot(multipart_request("/ui/login", "token", "wrong"))
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
+
+    // A correct login sets an HttpOnly session cookie and redirects home.
+    let good = build_router(state.clone())
+        .oneshot(multipart_request("/ui/login", "token", "s3cret"))
+        .await
+        .unwrap();
+    assert_eq!(good.status(), StatusCode::SEE_OTHER);
+    let cookie = good
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(cookie.contains("HttpOnly"));
+    assert!(cookie.contains("SameSite=Strict"));
+
+    // The session cookie authorizes the UI.
+    let authorized = build_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header("cookie", cookie.split(';').next().unwrap())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(authorized.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn output_name_is_validated() {
+    let root = tempfile::tempdir().unwrap();
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    for bad in ["../escape.tar", "a/b.tar", "bad\r\nInjected: 1"] {
+        let response = build_router(state.clone())
+            .oneshot(json_request(
+                "POST",
+                "/api/jobs",
+                serde_json::json!({
+                    "input": {"mode": "local_path", "path": root.path().to_string_lossy()},
+                    "options": {"output_name": bad}
+                }),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "accepted {bad:?}"
+        );
+    }
 }
 
 #[tokio::test]

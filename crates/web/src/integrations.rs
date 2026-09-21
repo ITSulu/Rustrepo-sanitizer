@@ -98,6 +98,15 @@ impl Integrations {
         self.config.github_token.is_some()
     }
 
+    /// Server-side token for authenticated clones. Never serialized.
+    pub fn forgejo_token(&self) -> Option<&str> {
+        self.config.forgejo_token.as_deref()
+    }
+
+    pub fn github_token(&self) -> Option<&str> {
+        self.config.github_token.as_deref()
+    }
+
     pub fn forgejo_clone_url(&self, owner: &str, repo: &str) -> Result<Url, IntegrationsError> {
         validate_component(owner)?;
         validate_component(repo)?;

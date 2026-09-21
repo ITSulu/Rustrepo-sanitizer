@@ -350,6 +350,16 @@ pub enum ReportFormat {
     Json,
     None,
 }
+
+/// Report members embedded in every archive. Shared so the web frontend can
+/// offer them for download without duplicating the names.
+pub const REPORT_MEMBERS: &[&str] = &[
+    "SANITIZATION-REPORT.md",
+    "SANITIZATION-REPORT.json",
+    "REPOSITORY-INVENTORY.md",
+    "SECRET-AUDIT.md",
+    "manifest.json",
+];
 pub struct Config {
     pub repository: PathBuf,
     pub output: PathBuf,

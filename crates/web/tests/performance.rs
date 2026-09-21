@@ -23,7 +23,12 @@ use tower::ServiceExt;
 
 struct FakeRunner;
 impl CloneRunner for FakeRunner {
-    fn clone(&self, _argv: Vec<String>, _dest: PathBuf) -> BoxFuture<'static, Result<(), String>> {
+    fn clone(
+        &self,
+        _argv: Vec<String>,
+        _env: Vec<(String, String)>,
+        _dest: PathBuf,
+    ) -> BoxFuture<'static, Result<(), String>> {
         Box::pin(async { Ok(()) })
     }
 }

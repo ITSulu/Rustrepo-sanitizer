@@ -71,12 +71,6 @@ struct JobInner {
     cancel: Arc<AtomicBool>,
 }
 
-impl JobInner {
-    fn terminal_and_downloaded(&self) -> bool {
-        self.status.is_terminal()
-    }
-}
-
 #[derive(Default)]
 pub struct Jobs {
     entries: Mutex<HashMap<String, Arc<Mutex<JobInner>>>>,
@@ -124,7 +118,7 @@ impl Jobs {
             .iter()
             .filter(|(_, handle)| {
                 let inner = handle.lock().unwrap();
-                now.duration_since(inner.created) > ttl && inner.terminal_and_downloaded()
+                now.duration_since(inner.created) > ttl && inner.status.is_terminal()
             })
             .map(|(id, _)| id.clone())
             .collect();
@@ -200,6 +194,10 @@ pub async fn start_job(
             bail!("uploaded repository was not found or has expired");
         }
     }
+    // Bound the registry so a flood cannot pin unbounded workspaces in memory.
+    if state.jobs.len() >= state.limits.max_jobs {
+        bail!("the server is at its job limit; try again later");
+    }
     let mode = spec.mode();
     let label = format!("{mode:?}").to_ascii_lowercase();
     let workspace = state
@@ -219,10 +217,8 @@ pub async fn start_job(
         cancel,
     });
 
-    let spawned_id = id.clone();
     tokio::spawn(async move {
-        let result = run_job(state.clone(), handle.clone(), spec, options).await;
-        if let Err(err) = result {
+        if let Err(err) = run_job(state.clone(), handle.clone(), spec, options).await {
             let mut inner = handle.lock().unwrap();
             if !inner.status.is_terminal() {
                 inner.status = JobStatus::Failed {
@@ -230,9 +226,6 @@ pub async fn start_job(
                 };
             }
         }
-        // Drop finished workspaces promptly; download re-opens the file handle
-        // path first, so we only release once terminal.
-        let _ = spawned_id;
     });
     Ok(id)
 }
@@ -348,14 +341,23 @@ async fn run_job(
 
     {
         let mut inner = handle.lock().unwrap();
-        inner.archive = Some(output.clone());
+        // A dry run writes no archive, so nothing is downloadable.
+        inner.archive = if summary.dry_run {
+            None
+        } else {
+            Some(output.clone())
+        };
         inner.reports = report_paths;
         inner.status = JobStatus::Completed {
             included: summary.included,
             excluded: summary.excluded,
             redactions: summary.redactions,
             dry_run: summary.dry_run,
-            archive: Some(file_name),
+            archive: if summary.dry_run {
+                None
+            } else {
+                Some(file_name)
+            },
             reports: report_names,
         };
     }

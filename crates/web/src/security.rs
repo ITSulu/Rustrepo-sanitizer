@@ -60,20 +60,35 @@ pub struct ExtractionReport {
 pub fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
+            let octets = v4.octets();
             v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
                 || v4.is_unspecified()
                 || v4.is_broadcast()
                 || v4.is_documentation()
-                || v4.octets()[0] == 0
+                || v4.is_multicast()
+                || octets[0] == 0
+                // 100.64.0.0/10 carrier-grade NAT.
+                || (octets[0] == 100 && (64..128).contains(&octets[1]))
+                // 192.0.0.0/24 IETF protocol assignments.
+                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+                // 198.18.0.0/15 benchmarking.
+                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+                // 240.0.0.0/4 reserved.
+                || octets[0] >= 240
         }
         IpAddr::V6(v6) => {
+            let segments = v6.segments();
             v6.is_loopback()
                 || v6.is_unspecified()
+                || v6.is_multicast()
                 // Unique local (fc00::/7) and link-local (fe80::/10).
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                || (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
+                // 6to4 (2002::/16) and NAT64 (64:ff9b::/96) can embed IPv4.
+                || segments[0] == 0x2002
+                || (segments[0] == 0x0064 && segments[1] == 0xff9b)
                 || v6
                     .to_ipv4_mapped()
                     .is_some_and(|mapped| is_private_ip(IpAddr::V4(mapped)))
@@ -122,6 +137,10 @@ pub fn git_clone_argv(url: &Url, dest: &Path) -> Vec<String> {
         "protocol.ext.allow=never".into(),
         "-c".into(),
         "protocol.file.allow=never".into(),
+        // Do not follow redirects: a redirect could reach an internal host that
+        // never passed host validation.
+        "-c".into(),
+        "http.followRedirects=false".into(),
         "clone".into(),
         "--no-tags".into(),
         "--single-branch".into(),
@@ -140,7 +159,13 @@ pub fn safe_output_name(name: &str) -> Result<String, SecurityError> {
     match (components.next(), components.next()) {
         (Some(Component::Normal(part)), None) => {
             let part = part.to_str().ok_or(SecurityError::PathEscape)?;
-            if part.is_empty() || part == "." || part == ".." {
+            if part.is_empty()
+                || part == "."
+                || part == ".."
+                || part
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, '"' | '\\' | '/'))
+            {
                 return Err(SecurityError::PathEscape);
             }
             Ok(part.to_owned())
@@ -236,11 +261,11 @@ pub fn extract_zip(
         }
         let target = dest.join(safe_relative_path(&name)?);
         if entry.is_dir() {
+            charge(&budget, &mut report, 0)?;
             std::fs::create_dir_all(&target)
                 .map_err(|err| SecurityError::InvalidArchive(err.to_string()))?;
             continue;
         }
-        charge(&budget, &mut report, entry.size())?;
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|err| SecurityError::InvalidArchive(err.to_string()))?;
@@ -253,6 +278,8 @@ pub fn extract_zip(
         if written > budget.max_file_bytes {
             return Err(SecurityError::ArchiveTooLarge);
         }
+        // Charge the bytes actually written, not the archive's declared size.
+        charge(&budget, &mut report, written)?;
     }
     Ok(report)
 }
@@ -286,6 +313,7 @@ pub fn extract_tar(
         }
         let target = dest.join(safe_relative_path(&name)?);
         if kind.is_dir() {
+            charge(&budget, &mut report, 0)?;
             std::fs::create_dir_all(&target)
                 .map_err(|err| SecurityError::InvalidArchive(err.to_string()))?;
             continue;
@@ -293,8 +321,6 @@ pub fn extract_tar(
         if !kind.is_file() {
             return Err(SecurityError::UnsafeArchiveEntry(name));
         }
-        let size = header.size().unwrap_or(0);
-        charge(&budget, &mut report, size)?;
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|err| SecurityError::InvalidArchive(err.to_string()))?;
@@ -307,6 +333,8 @@ pub fn extract_tar(
         if written > budget.max_file_bytes {
             return Err(SecurityError::ArchiveTooLarge);
         }
+        // Charge the bytes actually written, not the archive's declared size.
+        charge(&budget, &mut report, written)?;
     }
     Ok(report)
 }
@@ -364,12 +392,51 @@ mod tests {
                 "{ip} must be treated as private"
             );
         }
+        for ip in [
+            "100.64.0.1",
+            "100.127.255.1",
+            "192.0.0.5",
+            "198.18.0.1",
+            "224.0.0.1",
+            "240.0.0.1",
+            "2002:0a00:0001::1",
+            "64:ff9b::a00:1",
+        ] {
+            assert!(
+                is_private_ip(ip.parse().unwrap()),
+                "{ip} must be treated as private"
+            );
+        }
         for ip in ["1.1.1.1", "140.82.112.3", "2606:4700::1"] {
             assert!(
                 !is_private_ip(ip.parse().unwrap()),
                 "{ip} must be treated as public"
             );
         }
+    }
+
+    #[test]
+    fn output_names_reject_control_characters() {
+        assert!(safe_output_name("ok.tar.zst").is_ok());
+        assert_eq!(
+            safe_output_name("bad\r\nInjected: x"),
+            Err(SecurityError::PathEscape)
+        );
+        assert_eq!(
+            safe_output_name("quote\".tar"),
+            Err(SecurityError::PathEscape)
+        );
+        assert_eq!(
+            safe_output_name("back\\slash.tar"),
+            Err(SecurityError::PathEscape)
+        );
+    }
+
+    #[test]
+    fn clone_argv_disables_redirects() {
+        let url = validate_git_url("https://git.example.com/org/repo.git").unwrap();
+        let argv = git_clone_argv(&url, Path::new("/tmp/dest"));
+        assert!(argv.contains(&"http.followRedirects=false".to_owned()));
     }
 
     #[test]

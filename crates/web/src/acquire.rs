@@ -43,7 +43,12 @@ pub enum AcquireError {
 
 /// Executes `git` with structured arguments (never a shell).
 pub trait CloneRunner: Send + Sync + 'static {
-    fn clone(&self, argv: Vec<String>, dest: PathBuf) -> BoxFuture<'static, Result<(), String>>;
+    fn clone(
+        &self,
+        argv: Vec<String>,
+        env: Vec<(String, String)>,
+        dest: PathBuf,
+    ) -> BoxFuture<'static, Result<(), String>>;
 }
 
 /// Resolves a hostname to addresses so SSRF checks can run before cloning.
@@ -56,14 +61,27 @@ pub struct SystemCloneRunner {
 }
 
 impl CloneRunner for SystemCloneRunner {
-    fn clone(&self, argv: Vec<String>, dest: PathBuf) -> BoxFuture<'static, Result<(), String>> {
+    fn clone(
+        &self,
+        argv: Vec<String>,
+        env: Vec<(String, String)>,
+        dest: PathBuf,
+    ) -> BoxFuture<'static, Result<(), String>> {
         let timeout = self.timeout;
         Box::pin(async move {
             let mut command = tokio::process::Command::new("git");
             command.args(&argv);
             command.env("GIT_TERMINAL_PROMPT", "0");
             command.env("GIT_ASKPASS", "");
+            command.env("GIT_SSH_COMMAND", "false");
             command.env("GIT_CONFIG_NOSYSTEM", "1");
+            command.env("GIT_CONFIG_GLOBAL", "/dev/null");
+            // Credentials are passed through git's environment config so they
+            // never appear in argv.
+            for (key, value) in env {
+                command.env(key, value);
+            }
+            command.kill_on_drop(true);
             command.stdin(std::process::Stdio::null());
             let output = tokio::time::timeout(timeout, command.output())
                 .await
@@ -124,7 +142,11 @@ impl Acquirer {
                     .integrations
                     .forgejo_clone_url(owner, repo)
                     .map_err(|err| AcquireError::Invalid(err.to_string()))?;
-                self.acquire_authenticated(url, git_ref.as_deref(), dest)
+                let auth = self
+                    .integrations
+                    .forgejo_token()
+                    .map(|token| format!("Authorization: token {token}"));
+                self.acquire_authenticated(url, auth, git_ref.as_deref(), dest)
                     .await
             }
             InputSpec::GitHub {
@@ -132,10 +154,12 @@ impl Acquirer {
                 repo,
                 git_ref,
             } => {
-                // Public clone URL; stored credentials are injected by the
-                // runner's environment only, never returned to the browser.
                 let url = Integrations::github_clone_url(owner, repo);
-                self.acquire_authenticated(url, git_ref.as_deref(), dest)
+                let auth = self
+                    .integrations
+                    .github_token()
+                    .map(|token| format!("Authorization: Bearer {token}"));
+                self.acquire_authenticated(url, auth, git_ref.as_deref(), dest)
                     .await
             }
         }
@@ -155,7 +179,7 @@ impl Acquirer {
         if !allowed {
             return Err(AcquireError::LocalPathNotAllowed.into());
         }
-        if !canonical.join(".git").exists() {
+        if !is_git_repository(&canonical) {
             return Err(AcquireError::NotARepository.into());
         }
         Ok(canonical)
@@ -173,12 +197,13 @@ impl Acquirer {
             .await
             .map_err(AcquireError::Invalid)?;
         ensure_public_addrs(&addresses).map_err(AcquireError::Security)?;
-        self.clone_into(&url, None, dest).await
+        self.clone_into(&url, None, None, dest).await
     }
 
     async fn acquire_authenticated(
         &self,
         url: url::Url,
+        auth: Option<String>,
         git_ref: Option<&str>,
         dest: &Path,
     ) -> Result<PathBuf> {
@@ -192,12 +217,13 @@ impl Acquirer {
             .await
             .map_err(AcquireError::Invalid)?;
         ensure_public_addrs(&addresses).map_err(AcquireError::Security)?;
-        self.clone_into(&url, git_ref, dest).await
+        self.clone_into(&url, auth, git_ref, dest).await
     }
 
     async fn clone_into(
         &self,
         url: &url::Url,
+        auth: Option<String>,
         git_ref: Option<&str>,
         dest: &Path,
     ) -> Result<PathBuf> {
@@ -208,9 +234,18 @@ impl Acquirer {
             argv.insert(argv.len() - 1, "--branch".to_owned());
             argv.insert(argv.len() - 1, git_ref);
         }
+        let env = auth
+            .map(|header| {
+                vec![
+                    ("GIT_CONFIG_COUNT".to_owned(), "1".to_owned()),
+                    ("GIT_CONFIG_KEY_0".to_owned(), "http.extraHeader".to_owned()),
+                    ("GIT_CONFIG_VALUE_0".to_owned(), header),
+                ]
+            })
+            .unwrap_or_default();
         self.runner
             .as_ref()
-            .clone(argv, dest.to_path_buf())
+            .clone(argv, env, dest.to_path_buf())
             .await
             .map_err(AcquireError::Clone)?;
         let size = directory_size(dest);
@@ -257,7 +292,7 @@ impl Acquirer {
                 if !canonical.starts_with(self.uploads.root()) {
                     return Err(AcquireError::Invalid("upload escaped its store".into()).into());
                 }
-                if !canonical.join(".git").exists() {
+                if !is_git_repository(&canonical) {
                     return Err(AcquireError::NotARepository.into());
                 }
                 Ok(canonical)
@@ -289,13 +324,13 @@ pub fn validate_git_ref(git_ref: &str) -> Result<String> {
 /// Finds a Git repository root within an extracted upload, allowing one level
 /// of common wrappers (for example a `repo-main/` directory in a tarball).
 pub fn find_repository_root(dest: &Path) -> Option<PathBuf> {
-    if dest.join(".git").exists() {
+    if is_git_repository(dest) {
         return Some(dest.to_path_buf());
     }
     let entries = std::fs::read_dir(dest).ok()?;
     let mut candidates = Vec::new();
     for entry in entries.flatten() {
-        if entry.path().is_dir() && entry.path().join(".git").exists() {
+        if is_real_dir(&entry.path()) && is_git_repository(&entry.path()) {
             candidates.push(entry.path());
         }
     }
@@ -306,14 +341,32 @@ pub fn find_repository_root(dest: &Path) -> Option<PathBuf> {
     }
 }
 
+/// A path is a directory only if it is not a symlink (prevents symlink escape).
+fn is_real_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|meta| meta.is_dir())
+        .unwrap_or(false)
+}
+
+/// True when `path/.git` is a real directory, not a symlinked or "gitfile"
+/// pointer that could redirect Git outside the workspace.
+pub fn is_git_repository(path: &Path) -> bool {
+    is_real_dir(&path.join(".git"))
+}
+
 pub fn directory_size(path: &Path) -> u64 {
     fn walk(path: &Path, total: &mut u64) {
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
-                if let Ok(meta) = entry.metadata() {
+                // Use symlink_metadata so a symlink (e.g. `loop -> .`) is never
+                // followed into an infinite recursion or outside the workspace.
+                if let Ok(meta) = std::fs::symlink_metadata(entry.path()) {
+                    if meta.file_type().is_symlink() {
+                        continue;
+                    }
                     if meta.is_dir() {
                         walk(&entry.path(), total);
-                    } else {
+                    } else if meta.is_file() {
                         *total = total.saturating_add(meta.len());
                     }
                 }
@@ -342,6 +395,7 @@ mod tests {
         fn clone(
             &self,
             _argv: Vec<String>,
+            _env: Vec<(String, String)>,
             _dest: PathBuf,
         ) -> BoxFuture<'static, Result<(), String>> {
             Box::pin(async { Ok(()) })

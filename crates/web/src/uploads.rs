@@ -32,6 +32,7 @@ pub struct UploadStore {
     root: PathBuf,
     entries: Mutex<HashMap<String, UploadEntry>>,
     max_bytes: u64,
+    max_entries: usize,
 }
 
 impl UploadStore {
@@ -41,12 +42,55 @@ impl UploadStore {
             root,
             entries: Mutex::new(HashMap::new()),
             max_bytes: 512 * 1024 * 1024,
+            max_entries: 256,
         })
     }
 
     pub fn with_max_bytes(mut self, max_bytes: u64) -> Self {
         self.max_bytes = max_bytes;
         self
+    }
+
+    pub fn with_max_entries(mut self, max_entries: usize) -> Self {
+        self.max_entries = max_entries;
+        self
+    }
+
+    /// Creates an upload destination that enforces the size bound while the
+    /// caller streams bytes to it.
+    pub fn open_writer(&self, name: &str) -> Result<UploadWriter> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let dir = self.root.join(&id);
+        std::fs::create_dir_all(&dir).context("creating upload directory")?;
+        let safe_name = Path::new(name)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "upload".to_owned());
+        let path = dir.join(&safe_name);
+        let file = std::fs::File::create(&path).context("creating upload file")?;
+        Ok(UploadWriter {
+            id,
+            dir,
+            path,
+            name: safe_name,
+            file: Some(file),
+            bytes: 0,
+            max_bytes: self.max_bytes,
+        })
+    }
+
+    /// Number of live uploads (bounded).
+    pub fn len(&self) -> usize {
+        self.entries.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// True when the store has reached its entry bound.
+    pub fn is_full(&self) -> bool {
+        self.len() >= self.max_entries
     }
 
     pub fn root(&self) -> &Path {
@@ -56,6 +100,9 @@ impl UploadStore {
     /// Streams an upload into the store, enforcing the size bound. The returned
     /// id is opaque.
     pub fn put<R: std::io::Read>(&self, name: &str, mut reader: R) -> Result<UploadEntry> {
+        if self.is_full() {
+            bail!("upload store is full");
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let dir = self.root.join(&id);
         std::fs::create_dir_all(&dir).context("creating upload directory")?;
@@ -86,6 +133,9 @@ impl UploadStore {
 
     /// Registers an existing directory (used for local/test inputs).
     pub fn register_directory(&self, path: PathBuf) -> Result<UploadEntry> {
+        if self.is_full() {
+            bail!("upload store is full");
+        }
         let canonical = std::fs::canonicalize(&path)?;
         if !canonical.starts_with(&self.root) {
             bail!("registered directory must live inside the upload root");
@@ -141,6 +191,60 @@ impl UploadStore {
             self.remove(id);
         }
         expired.len()
+    }
+}
+
+/// A streaming upload destination that enforces the size bound as chunks are
+/// written and cleans up if it is dropped before `finish`.
+pub struct UploadWriter {
+    id: String,
+    dir: PathBuf,
+    path: PathBuf,
+    name: String,
+    file: Option<std::fs::File>,
+    bytes: u64,
+    max_bytes: u64,
+}
+
+impl UploadWriter {
+    pub fn write(&mut self, chunk: &[u8]) -> Result<()> {
+        self.bytes = self.bytes.saturating_add(chunk.len() as u64);
+        if self.bytes > self.max_bytes {
+            bail!("upload exceeds the size limit");
+        }
+        self.file
+            .as_mut()
+            .context("upload writer closed")?
+            .write_all(chunk)
+            .context("writing upload")
+    }
+
+    pub fn finish(mut self, store: &UploadStore) -> Result<UploadEntry> {
+        if let Some(mut file) = self.file.take() {
+            file.flush().ok();
+        }
+        let entry = UploadEntry {
+            id: self.id.clone(),
+            path: self.path.clone(),
+            kind: UploadKind::Archive,
+            name: self.name.clone(),
+            bytes: self.bytes,
+            created: Instant::now(),
+        };
+        store
+            .entries
+            .lock()
+            .unwrap()
+            .insert(self.id.clone(), entry.clone());
+        Ok(entry)
+    }
+}
+
+impl Drop for UploadWriter {
+    fn drop(&mut self) {
+        if self.file.is_some() {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
     }
 }
 

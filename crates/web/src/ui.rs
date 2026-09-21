@@ -2,7 +2,11 @@
 //!
 //! Rendered to HTML by the Axum server. Every control is a native form element
 //! with an explicit label and `aria-describedby` help text, so the workflow is
-//! fully keyboard-operable and does not require JavaScript.
+//! fully keyboard-operable and does not require JavaScript. Submitted values are
+//! echoed back on validation errors, and job status is announced via a live
+//! region (no auto-refresh that would interrupt assistive technology).
+
+use std::collections::HashMap;
 
 use leptos::prelude::*;
 
@@ -27,23 +31,47 @@ legend { font-weight:600; padding:0 .35rem; }
 .field { display:flex; flex-direction:column; gap:.25rem; }
 .field.inline { flex-direction:row; align-items:center; gap:.5rem; }
 .help { color:var(--muted); font-size:.85rem; }
+.table-wrap { overflow-x:auto; }
 input[type=text], input[type=url], input[type=password], input[type=number], select, textarea { padding:.5rem; border:1px solid var(--border); border-radius:.35rem; background:transparent; color:inherit; width:100%; }
 button { background:var(--accent); color:#fff; border:0; border-radius:.35rem; padding:.6rem 1.1rem; cursor:pointer; }
 button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
 .status { border-left:4px solid var(--accent); padding:.75rem 1rem; background:var(--card); margin:1rem 0; }
 .status[data-kind="error"] { border-color:#dc2626; }
 .status[data-kind="ok"] { border-color:#16a34a; }
-table { border-collapse:collapse; width:100%; }
+table { border-collapse:collapse; width:100%; word-break:break-word; }
+caption { text-align:left; padding:.25rem 0 .5rem; color:var(--muted); }
 th, td { text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--border); }
 @media (max-width: 40rem) { header, main, footer { padding:.75rem; } .grid { grid-template-columns: 1fr; } }
 "#;
 
 fn option(selected: &str, item: &str) -> impl IntoView {
     let item = item.to_owned();
-    let selected = selected.to_owned();
     let is_selected = item == selected;
     let value = item.clone();
     view! { <option value=value selected=is_selected>{item}</option> }
+}
+
+/// Preserves the submitted form values across an error re-render.
+pub type FormValues = HashMap<String, String>;
+
+fn value_of(values: &FormValues, key: &str) -> String {
+    values.get(key).cloned().unwrap_or_default()
+}
+
+fn text_value(values: &FormValues, key: &str, initial: &str) -> String {
+    match values.get(key) {
+        Some(value) => value.clone(),
+        None if values.is_empty() => initial.to_owned(),
+        None => String::new(),
+    }
+}
+
+fn is_checked(values: &FormValues, key: &str, default_on: bool) -> bool {
+    if values.is_empty() {
+        default_on
+    } else {
+        values.contains_key(key)
+    }
 }
 
 #[component]
@@ -52,6 +80,7 @@ pub fn App(
     job: Option<JobView>,
     flash: Option<String>,
     error: Option<String>,
+    values: FormValues,
 ) -> impl IntoView {
     let defaults = caps.defaults.clone();
     let version = caps.version.clone();
@@ -71,8 +100,25 @@ pub fn App(
         .and_then(|v| v.as_str().map(str::to_owned))
         .unwrap_or_else(|| "markdown".into());
 
+    let chosen_format = values.get("format").cloned().unwrap_or(default_format);
+    let chosen_compression = values
+        .get("compression")
+        .cloned()
+        .unwrap_or(default_compression);
+    let chosen_report = values.get("report").cloned().unwrap_or(default_report);
+    let chosen_mode = values
+        .get("mode")
+        .cloned()
+        .unwrap_or_else(|| "local_path".to_owned());
     let help_groups = caps.help.groups.clone();
-    let refresh = job.as_ref().is_some_and(|job| !job.status.is_terminal());
+    let has_error = error.is_some();
+
+    let mode_opt = |value: &str, label: &str| {
+        let selected = chosen_mode == value;
+        let value = value.to_owned();
+        let label = label.to_owned();
+        view! { <option value=value selected=selected>{label}</option> }
+    };
 
     view! {
         <html lang="en">
@@ -80,7 +126,6 @@ pub fn App(
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>"Rustrepo Sanitizer Web"</title>
-                {refresh.then(|| view! { <meta http-equiv="refresh" content="2"/> })}
                 <style>{STYLE}</style>
             </head>
             <body>
@@ -91,7 +136,7 @@ pub fn App(
                 </header>
                 <main id="main">
                     {error.map(|message| view! {
-                        <p class="status" data-kind="error" role="alert">{message}</p>
+                        <p class="status" id="form-error" data-kind="error" role="alert">{message}</p>
                     })}
                     {flash.map(|message| view! {
                         <p class="status" data-kind="ok" role="status">{message}</p>
@@ -99,63 +144,66 @@ pub fn App(
                     {job.map(|job| render_job(&job))}
                     <section aria-labelledby="capabilities-heading">
                         <h2 id="capabilities-heading">"Supported formats"</h2>
-                        <table>
-                            <thead><tr><th scope="col">"Format"</th><th scope="col">"Compressions"</th><th scope="col">"Password"</th></tr></thead>
-                            <tbody>
-                                {caps.formats.iter().map(|format| {
-                                    let name = format.name.clone();
-                                    let compressions = format.compressions.join(", ");
-                                    let password = if format.password_encryption { "yes" } else { "no" };
-                                    view! { <tr><td>{name}</td><td>{compressions}</td><td>{password}</td></tr> }
-                                }).collect_view()}
-                            </tbody>
-                        </table>
+                        <div class="table-wrap">
+                            <table>
+                                <caption>"Archive formats and password support"</caption>
+                                <thead><tr><th scope="col">"Format"</th><th scope="col">"Compressions"</th><th scope="col">"Password"</th></tr></thead>
+                                <tbody>
+                                    {caps.formats.iter().map(|format| {
+                                        let name = format.name.clone();
+                                        let compressions = format.compressions.join(", ");
+                                        let password = if format.password_encryption { "yes" } else { "no" };
+                                        view! { <tr><td>{name}</td><td>{compressions}</td><td>{password}</td></tr> }
+                                    }).collect_view()}
+                                </tbody>
+                            </table>
+                        </div>
                     </section>
                     <section aria-labelledby="form-heading">
                         <h2 id="form-heading">"Sanitize a repository"</h2>
-                        <form method="post" action="/ui/jobs" enctype="multipart/form-data">
+                        <form method="post" action="/ui/jobs" enctype="multipart/form-data" aria-describedby=has_error.then_some("form-error")>
                             <fieldset>
                                 <legend>"Repository source"</legend>
                                 <div class="field">
                                     <label for="mode">"Input method"</label>
                                     <select id="mode" name="mode" aria-describedby="mode-help">
-                                        <option value="local_path">"Server-local path"</option>
-                                        <option value="git_url">"Git repository URL"</option>
-                                        <option value="upload">"Uploaded repository archive"</option>
-                                        <option value="forgejo">"Forgejo repository"</option>
-                                        <option value="github">"GitHub repository"</option>
+                                        {mode_opt("local_path", "Server-local path")}
+                                        {mode_opt("git_url", "Git repository URL")}
+                                        {mode_opt("upload", "Uploaded repository archive")}
+                                        {mode_opt("forgejo", "Forgejo repository")}
+                                        {mode_opt("github", "GitHub repository")}
                                     </select>
                                     <small class="help" id="mode-help">"Choose how the server obtains the repository. Fields that do not apply may be left blank."</small>
                                 </div>
                                 <div class="grid">
                                     <div class="field">
                                         <label for="path">"Server-local path"</label>
-                                        <input type="text" id="path" name="path" autocomplete="off" aria-describedby="path-help"/>
+                                        <input type="text" id="path" name="path" autocomplete="off" value=value_of(&values, "path") aria-describedby="path-help"/>
                                         <small class="help" id="path-help">"Absolute path to a repository inside an allowed server root."</small>
                                     </div>
                                     <div class="field">
                                         <label for="url">"Git URL (https)"</label>
-                                        <input type="url" id="url" name="url" inputmode="url" autocomplete="off" aria-describedby="url-help"/>
+                                        <input type="url" id="url" name="url" inputmode="url" autocomplete="off" value=value_of(&values, "url") aria-describedby="url-help"/>
                                         <small class="help" id="url-help">"Public https Git repository. Private and loopback hosts are rejected."</small>
                                     </div>
                                     <div class="field">
                                         <label for="upload">"Upload archive"</label>
                                         <input type="file" id="upload" name="upload" accept=".zip,.tar,.tar.gz,.tgz" aria-describedby="upload-help"/>
-                                        <small class="help" id="upload-help">"Zip or tar(.gz) archive of a Git repository, extracted safely."</small>
+                                        <small class="help" id="upload-help">"Zip or tar(.gz) archive of a Git repository, extracted safely. Re-select the file after a validation error."</small>
                                     </div>
                                     <div class="field">
                                         <label for="forgejo-repo">"Forgejo repository (owner/name)"</label>
-                                        <input type="text" id="forgejo-repo" name="forgejo_repo" placeholder="owner/name" aria-describedby="forgejo-help"/>
+                                        <input type="text" id="forgejo-repo" name="forgejo_repo" placeholder="owner/name" value=value_of(&values, "forgejo_repo") aria-describedby="forgejo-help"/>
                                         <small class="help" id="forgejo-help">"Cloned server-side with the configured Forgejo token. A repository list is available at /ui/integrations/forgejo."</small>
                                     </div>
                                     <div class="field">
                                         <label for="github-repo">"GitHub repository (owner/name)"</label>
-                                        <input type="text" id="github-repo" name="github_repo" placeholder="owner/name" aria-describedby="github-help"/>
+                                        <input type="text" id="github-repo" name="github_repo" placeholder="owner/name" value=value_of(&values, "github_repo") aria-describedby="github-help"/>
                                         <small class="help" id="github-help">"Cloned server-side. A repository list is available at /ui/integrations/github."</small>
                                     </div>
                                     <div class="field">
                                         <label for="git-ref">"Branch or tag (optional)"</label>
-                                        <input type="text" id="git-ref" name="git_ref" autocomplete="off" aria-describedby="git-ref-help"/>
+                                        <input type="text" id="git-ref" name="git_ref" autocomplete="off" value=value_of(&values, "git_ref") aria-describedby="git-ref-help"/>
                                         <small class="help" id="git-ref-help">"Clone a specific branch or tag; leave blank for the default branch."</small>
                                     </div>
                                 </div>
@@ -165,30 +213,35 @@ pub fn App(
                                 <div class="grid">
                                     <div class="field">
                                         <label for="format">"Archive format"</label>
-                                        <select id="format" name="format">{formats.iter().map(|f| option(&default_format, f)).collect_view()}</select>
+                                        <select id="format" name="format" aria-describedby="format-help">{formats.iter().map(|f| option(&chosen_format, f)).collect_view()}</select>
+                                        <small class="help" id="format-help">"Container format for the sanitized bundle."</small>
                                     </div>
                                     <div class="field">
                                         <label for="compression">"Compression"</label>
-                                        <select id="compression" name="compression">{compressions.iter().map(|c| option(&default_compression, c)).collect_view()}</select>
+                                        <select id="compression" name="compression" aria-describedby="compression-help">{compressions.iter().map(|c| option(&chosen_compression, c)).collect_view()}</select>
+                                        <small class="help" id="compression-help">"Only codecs valid for the chosen format are accepted."</small>
                                     </div>
                                     <div class="field">
                                         <label for="report">"Report format"</label>
-                                        <select id="report" name="report">{reports.iter().map(|r| option(&default_report, r)).collect_view()}</select>
+                                        <select id="report" name="report" aria-describedby="report-help">{reports.iter().map(|r| option(&chosen_report, r)).collect_view()}</select>
+                                        <small class="help" id="report-help">"Human-readable Markdown, JSON, or no report."</small>
                                     </div>
                                     <div class="field">
                                         <label for="output_name">"Output filename (optional)"</label>
-                                        <input type="text" id="output_name" name="output_name" autocomplete="off"/>
+                                        <input type="text" id="output_name" name="output_name" autocomplete="off" value=value_of(&values, "output_name") aria-describedby="output-name-help"/>
+                                        <small class="help" id="output-name-help">"Filename without directories; the server stores it in the job workspace."</small>
                                     </div>
                                     <div class="field">
                                         <label for="max_file_size">"Maximum file size (bytes)"</label>
-                                        <input type="number" id="max_file_size" name="max_file_size" min="0" value=defaults.max_file_size.to_string()/>
+                                        <input type="number" id="max_file_size" name="max_file_size" min="0" value=text_value(&values, "max_file_size", &defaults.max_file_size.to_string()) aria-describedby="max-file-size-help"/>
+                                        <small class="help" id="max-file-size-help">"Files larger than this are excluded."</small>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="include_untracked" name="include_untracked" value="1"/>
+                                        <input type="checkbox" id="include_untracked" name="include_untracked" value="1" checked=is_checked(&values, "include_untracked", false)/>
                                         <label for="include_untracked">"Include untracked files"</label>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="timestamp_name" name="timestamp_name" value="1" checked=defaults.timestamp_name/>
+                                        <input type="checkbox" id="timestamp_name" name="timestamp_name" value="1" checked=is_checked(&values, "timestamp_name", true)/>
                                         <label for="timestamp_name">"Timestamp output filename"</label>
                                     </div>
                                 </div>
@@ -198,11 +251,13 @@ pub fn App(
                                 <div class="grid">
                                     <div class="field">
                                         <label for="includes">"Include globs (one per line)"</label>
-                                        <textarea id="includes" name="includes" rows="3"></textarea>
+                                        <textarea id="includes" name="includes" rows="3" aria-describedby="includes-help">{text_value(&values, "includes", "")}</textarea>
+                                        <small class="help" id="includes-help">"Only files matching these patterns are packed."</small>
                                     </div>
                                     <div class="field">
                                         <label for="excludes">"Exclude globs (one per line)"</label>
-                                        <textarea id="excludes" name="excludes" rows="3"></textarea>
+                                        <textarea id="excludes" name="excludes" rows="3" aria-describedby="excludes-help">{text_value(&values, "excludes", "")}</textarea>
+                                        <small class="help" id="excludes-help">"Files matching these patterns are left out."</small>
                                     </div>
                                 </div>
                             </fieldset>
@@ -210,15 +265,15 @@ pub fn App(
                                 <legend>"Redaction and safety"</legend>
                                 <div class="grid">
                                     <div class="field inline">
-                                        <input type="checkbox" id="redact" name="redact" value="1" checked=defaults.redact/>
+                                        <input type="checkbox" id="redact" name="redact" value="1" checked=is_checked(&values, "redact", true)/>
                                         <label for="redact">"Redact detected secrets"</label>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="fail_on_secret" name="fail_on_secret" value="1"/>
+                                        <input type="checkbox" id="fail_on_secret" name="fail_on_secret" value="1" checked=is_checked(&values, "fail_on_secret", false)/>
                                         <label for="fail_on_secret">"Fail when secrets are detected"</label>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="dry_run" name="dry_run" value="1"/>
+                                        <input type="checkbox" id="dry_run" name="dry_run" value="1" checked=is_checked(&values, "dry_run", false)/>
                                         <label for="dry_run">"Dry run (no archive)"</label>
                                     </div>
                                 </div>
@@ -233,22 +288,23 @@ pub fn App(
                                     </div>
                                     <div class="field">
                                         <label for="password_min_length">"Minimum length"</label>
-                                        <input type="number" id="password_min_length" name="password_min_length" min="1" max="256" value="8"/>
+                                        <input type="number" id="password_min_length" name="password_min_length" min="1" max="256" value=text_value(&values, "password_min_length", "8") aria-describedby="password-min-help"/>
+                                        <small class="help" id="password-min-help">"Minimum number of characters required."</small>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="password_require_uppercase" name="password_require_uppercase" value="1" checked/>
+                                        <input type="checkbox" id="password_require_uppercase" name="password_require_uppercase" value="1" checked=is_checked(&values, "password_require_uppercase", true)/>
                                         <label for="password_require_uppercase">"Require uppercase"</label>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="password_require_lowercase" name="password_require_lowercase" value="1" checked/>
+                                        <input type="checkbox" id="password_require_lowercase" name="password_require_lowercase" value="1" checked=is_checked(&values, "password_require_lowercase", true)/>
                                         <label for="password_require_lowercase">"Require lowercase"</label>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="password_require_number" name="password_require_number" value="1" checked/>
+                                        <input type="checkbox" id="password_require_number" name="password_require_number" value="1" checked=is_checked(&values, "password_require_number", true)/>
                                         <label for="password_require_number">"Require number"</label>
                                     </div>
                                     <div class="field inline">
-                                        <input type="checkbox" id="password_require_special" name="password_require_special" value="1" checked/>
+                                        <input type="checkbox" id="password_require_special" name="password_require_special" value="1" checked=is_checked(&values, "password_require_special", true)/>
                                         <label for="password_require_special">"Require special character"</label>
                                     </div>
                                 </div>
@@ -279,6 +335,7 @@ pub fn App(
 fn render_job(job: &JobView) -> AnyView {
     let id = job.id.clone();
     let download = format!("/ui/jobs/{id}/download");
+    let refresh = format!("/ui/jobs/{id}");
     let (kind, text) = match &job.status {
         JobStatus::Queued => ("status", "Queued".to_owned()),
         JobStatus::Running {
@@ -316,6 +373,7 @@ fn render_job(job: &JobView) -> AnyView {
             <h2 id="job-heading">"Job " {id.clone()}</h2>
             <p class="status" data-kind=kind role="status" aria-live="polite">{text}</p>
             {(!terminal).then(|| view! {
+                <p><a href=refresh>"Refresh status"</a></p>
                 <form method="post" action=format!("/ui/jobs/{id}/cancel")>
                     <button class="secondary" type="submit">"Cancel"</button>
                 </form>

@@ -10,14 +10,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use itsulu_repo_sanitizer::sanitizer::{ArchiveFormat, Compression};
 
-/// Report members the web UI can offer for download.
-pub const REPORT_MEMBERS: &[&str] = &[
-    "SANITIZATION-REPORT.md",
-    "SANITIZATION-REPORT.json",
-    "REPOSITORY-INVENTORY.md",
-    "SECRET-AUDIT.md",
-    "manifest.json",
-];
+/// Report members the web UI can offer for download. The names come from the
+/// shared core so the two cannot drift.
+pub const REPORT_MEMBERS: &[&str] = itsulu_repo_sanitizer::sanitizer::REPORT_MEMBERS;
 
 fn member_is_report(name: &str) -> bool {
     REPORT_MEMBERS.contains(&name)
