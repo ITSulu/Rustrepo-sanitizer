@@ -128,15 +128,32 @@ fn no_stale_or_unknown_options_are_documented() {
     }
 }
 
+/// Collapse whitespace so line wrapping in the help output does not hide a
+/// description.
+fn normalize(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[test]
 fn every_argument_has_a_description() {
     let (_, stdout, _) = run(&["sanitize", "--help"]);
+    let help_text = normalize(&stdout);
     for description in help::CLI_HELP {
         assert!(
-            stdout.contains(description),
+            help_text.contains(&normalize(description)),
             "help is missing the description: {description}"
         );
     }
+}
+
+#[test]
+fn help_stays_readable_at_normal_terminal_widths() {
+    let (_, stdout, _) = run(&["sanitize", "--help"]);
+    let widest = stdout.lines().map(str::len).max().unwrap_or(0);
+    assert!(
+        widest <= 100,
+        "help lines must not exceed a normal terminal width (widest was {widest})"
+    );
 }
 
 #[test]

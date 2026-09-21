@@ -18,7 +18,7 @@ path = "src/bin/gui.rs"
 [dependencies]
 anyhow = "1.0"
 chrono = "0.4"
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "wrap_help"] }
 flate2 = "1.0"
 globset = "0.4"
 libc = "0.2"

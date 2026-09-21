@@ -10,6 +10,7 @@ use itsulu_repo_sanitizer::sanitizer::{
 #[command(
     name = "itsulu-repo-sanitizer",
     version,
+    max_term_width = 100,
     about = "Create a safe AI review archive from a Git repository"
 )]
 struct Cli {
@@ -19,7 +20,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about = "Create a sanitized, reproducible review bundle from a Git repository")]
+    #[command(
+        about = "Create a sanitized, reproducible review bundle from a Git repository",
+        max_term_width = 100
+    )]
     Sanitize(SanitizeArgs),
     #[command(about = "List supported archive and compression formats")]
     ListFormats,
