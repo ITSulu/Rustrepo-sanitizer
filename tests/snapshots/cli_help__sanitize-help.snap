@@ -1,0 +1,70 @@
+---
+source: tests/cli_help.rs
+expression: stdout
+---
+Create a sanitized, reproducible review bundle from a Git repository
+
+Usage: itsulu-repo-sanitizer sanitize [OPTIONS] [REPOSITORY]
+
+Options:
+  -h, --help  Print help
+
+Repository / input:
+      --include-untracked  Also include files Git does not track yet, subject to safety filters.
+  [REPOSITORY]             Git repository to sanitize; defaults to the current directory. [default:
+                           .]
+
+Output:
+  -o, --output <OUTPUT>
+          Destination archive path; leave blank to derive a filename in the repository root.
+      --timestamp-name <TIMESTAMP_NAME>
+          Add a timestamp and commit id to the automatic output filename. [default: true] [possible
+          values: true, false]
+
+Archive / compression:
+      --archive <ARCHIVE>          Archive container: none (JSONL stream), tar, zip, or 7z.
+                                   [default: tar] [alias: --format] [possible values: none, tar,
+                                   zip, 7z]
+      --compression <COMPRESSION>  Compression codec; only codecs valid for the chosen archive are
+                                   accepted. [default: zstd] [possible values: none, gzip, zstd,
+                                   lz4, lzip, lzma, lzo, lrzip, xz, zlib, brotli, snappy, bzip2]
+
+Include / exclude:
+      --include <INCLUDE>              Git-style glob of paths to include; repeat for more patterns.
+      --exclude <EXCLUDE>              Git-style glob of paths to exclude; repeat for more patterns.
+      --max-file-size <MAX_FILE_SIZE>  Skip files larger than this number of bytes. [default:
+                                       10485760]
+
+Redaction / sanitization:
+      --redact <REDACT>  Replace high-confidence secret values with redaction markers. [default:
+                         true] [possible values: true, false]
+      --no-redact        Disable redaction of detected secret values.
+      --fail-on-secret   Stop with an error instead of producing output when a secret is found.
+
+Reports / metadata:
+      --report <REPORT>  Report format: markdown, json, or none. [default: markdown] [possible
+                         values: markdown, json, none]
+      --dry-run          Scan and report results without writing an archive.
+
+Security / password:
+      --password-file <PASSWORD_FILE>
+          Read the ZIP AES password from this file.
+      --password-stdin
+          Read the ZIP AES password from standard input.
+      --password-min-length <PASSWORD_MIN_LENGTH>
+          Minimum number of characters required in a password. [default: 8]
+      --password-require-uppercase <PASSWORD_REQUIRE_UPPERCASE>
+          Require at least one uppercase letter in the password. [default: true] [possible values:
+          true, false]
+      --password-require-lowercase <PASSWORD_REQUIRE_LOWERCASE>
+          Require at least one lowercase letter in the password. [default: true] [possible values:
+          true, false]
+      --password-require-number <PASSWORD_REQUIRE_NUMBER>
+          Require at least one digit in the password. [default: true] [possible values: true, false]
+      --password-require-special <PASSWORD_REQUIRE_SPECIAL>
+          Require at least one special character in the password. [default: true] [possible values:
+          true, false]
+
+Advanced:
+  -v, --verbose  Print per-file progress details.
+  -q, --quiet    Suppress the final summary line.

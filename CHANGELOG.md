@@ -3,6 +3,14 @@
 This project follows the `MAJOR.MINOR.PATCH` policy documented in
 `CONTRIBUTING.md`. Every release is published from a merged pull request.
 
+## 0.5.0 (2026-09-21)
+
+- Added a plain-language tooltip to every GUI control, shown after a short
+  hover dwell and hidden when the pointer leaves.
+- Added one shared description source so CLI and GUI help text cannot drift.
+- Regrouped the CLI help by purpose and described every argument; `--help`,
+  `-h`, and `-help` all succeed.
+
 ## 0.3.2 (2026-09-13)
 
 - Added reproducible release artifact packaging and idempotent Forgejo/GitHub

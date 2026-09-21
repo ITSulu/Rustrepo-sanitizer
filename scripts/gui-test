@@ -11,7 +11,7 @@ command -v xdotool >/dev/null
 command -v xprop >/dev/null
 cargo test --test gui_xa11y --no-run
 cargo build --features gui --bin rustrepo-sanitizer-gui
-test_bin=$(find target/debug/deps -maxdepth 1 -type f -name "gui_xa11y-*" -executable | head -n 1)
+test_bin=$(ls -t target/debug/deps/gui_xa11y-* 2>/dev/null | grep -v '\.d$' | head -n 1)
 test -n "$test_bin"
 status_path=/org/a11y/bus
 status_iface=org.a11y.Status

@@ -1,26 +1,204 @@
 import { Button, CheckBox, ComboBox, LineEdit, ScrollView, VerticalBox } from "std-widgets.slint";
 
-component HelpfulButton inherits Button {
-    in property <string> help;
-    Tooltip { text: @markdown("\{root.help}"); }
+// Shared hover-help state consumed by the window-level overlay. The CLI reuses
+// the same wording from src/help.rs; a regression test keeps them in sync.
+export global Help {
+    in-out property <string> tip-text: "";
+    in-out property <length> tip-x: 0px;
+    in-out property <length> tip-y: 0px;
+    in-out property <bool> tip-visible: false;
+    // Dwell time before a tooltip appears. Approximately one second.
+    in property <duration> tip-delay: 1s;
 }
-component HelpfulCheckBox inherits CheckBox {
-    in property <string> help;
+
+// Waits for the help dwell time, then publishes the tooltip to the overlay.
+component TipDwell inherits Rectangle {
+    in property <string> help: "";
+    in property <string> a11y-id: "";
+    in property <string> a11y-label: "";
+    in property <bool> hovered: false;
+    in property <length> anchor-x: 0px;
+    in property <length> anchor-y: 0px;
+    width: 0;
+    height: 0;
+    property <bool> armed: false;
+    Timer {
+        interval: Help.tip-delay;
+        running: root.hovered && !root.armed;
+        triggered => {
+            if (root.hovered) {
+                root.armed = true;
+                Help.tip-text = root.help;
+                Help.tip-x = root.anchor-x;
+                Help.tip-y = root.anchor-y;
+                Help.tip-visible = true;
+            }
+        }
+    }
+    changed hovered => {
+        if (!root.hovered) {
+            root.armed = false;
+            Help.tip-visible = false;
+        }
+    }
+}
+
+// Window-level tooltip rendering. It lives outside layouts so it can never be
+// clipped and never takes part in pointer handling.
+component HelpOverlay inherits Rectangle {
+    in property <length> window-width: 0px;
+    in property <length> window-height: 0px;
+    visible: Help.tip-visible;
+    width: min(root.window-width - 12px, 360px);
+    height: text.preferred-height + 12px;
+    x: max(0px, min(Help.tip-x, root.window-width - self.width - 6px));
+    y: max(0px, min(Help.tip-y, root.window-height - self.height - 6px));
+    z: 10000;
+    background: #1f2937;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: #111827;
+    text := Text {
+        x: 8px;
+        y: 6px;
+        width: parent.width - 16px;
+        text: Help.tip-text;
+        color: #f9fafb;
+        wrap: word-wrap;
+    }
+}
+
+component HelpfulButton inherits Rectangle {
+    in property <string> text;
+    in property <string> help: "";
+    in property <string> a11y-id: "";
+    in property <string> a11y-label: "";
+    in property <bool> enabled: true;
+    callback clicked;
+    preferred-width: btn.preferred-width;
+    preferred-height: btn.preferred-height;
+    property <bool> hovered: hover.has-hover;
+    hover := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        btn := Button {
+            width: 100%;
+            height: 100%;
+            text: root.text;
+            enabled: root.enabled;
+            accessible-id: root.a11y-id;
+            accessible-label: root.a11y-label;
+            clicked => { root.clicked(); }
+        }
+    }
+    TipDwell { help: root.help; hovered: root.hovered; anchor-x: root.absolute-position.x + 8px; anchor-y: root.absolute-position.y + root.height + 6px; }
+}
+
+component HelpfulCheckBox inherits Rectangle {
+    in property <string> text;
+    in property <string> help: "";
+    in property <string> a11y-id: "";
+    in property <string> a11y-label: "";
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
     callback checked-changed(bool);
-    changed checked => { root.checked-changed(self.checked); }
-    Tooltip { text: @markdown("\{root.help}"); }
+    preferred-width: box.preferred-width;
+    preferred-height: box.preferred-height;
+    property <bool> hovered: hover.has-hover;
+    hover := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        box := CheckBox {
+            width: 100%;
+            height: 100%;
+            text: root.text;
+            checked <=> root.checked;
+            enabled: root.enabled;
+            accessible-id: root.a11y-id;
+            accessible-label: root.a11y-label;
+            toggled => { root.checked-changed(root.checked); }
+        }
+    }
+    TipDwell { help: root.help; hovered: root.hovered; anchor-x: root.absolute-position.x + 8px; anchor-y: root.absolute-position.y + root.height + 6px; }
 }
-component HelpfulComboBox inherits ComboBox {
-    in property <string> help;
+
+component HelpfulComboBox inherits Rectangle {
+    in property <[string]> model;
+    in property <string> help: "";
+    in property <string> a11y-id: "";
+    in property <string> a11y-label: "";
+    in-out property <int> current-index: 0;
+    out property <string> current-value: combo.current-value;
+    in property <bool> enabled: true;
     callback selection-changed(int);
-    changed current-index => { root.selection-changed(self.current-index); }
-    Tooltip { text: @markdown("\{root.help}"); }
+    preferred-width: combo.preferred-width;
+    preferred-height: combo.preferred-height;
+    horizontal-stretch: 1;
+    property <bool> hovered: hover.has-hover;
+    hover := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        combo := ComboBox {
+            width: 100%;
+            height: 100%;
+            model: root.model;
+            current-index <=> root.current-index;
+            enabled: root.enabled;
+            accessible-id: root.a11y-id;
+            accessible-label: root.a11y-label;
+            selected(_) => { root.selection-changed(root.current-index); }
+        }
+    }
+    TipDwell { help: root.help; hovered: root.hovered; anchor-x: root.absolute-position.x + 8px; anchor-y: root.absolute-position.y + root.height + 6px; }
 }
-component HelpfulLineEdit inherits LineEdit {
-    in property <string> help;
+
+component HelpfulLineEdit inherits Rectangle {
+    in property <string> help: "";
+    in property <string> a11y-id: "";
+    in property <string> a11y-label: "";
+    in-out property <string> text;
+    in property <string> placeholder-text;
+    in property <InputType> input-type: InputType.text;
+    in property <bool> enabled: true;
+    callback edited(string);
     callback user-edited(string);
-    edited(text) => { root.user-edited(text); }
-    Tooltip { text: @markdown("\{root.help}"); }
+    preferred-width: edit.preferred-width;
+    preferred-height: edit.preferred-height;
+    horizontal-stretch: 1;
+    property <bool> hovered: hover.has-hover;
+    hover := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        edit := LineEdit {
+            width: 100%;
+            height: 100%;
+            text <=> root.text;
+            placeholder-text: root.placeholder-text;
+            input-type: root.input-type;
+            enabled: root.enabled;
+            accessible-id: root.a11y-id;
+            accessible-label: root.a11y-label;
+            edited(text) => { root.edited(text); root.user-edited(text); }
+        }
+    }
+    TipDwell { help: root.help; hovered: root.hovered; anchor-x: root.absolute-position.x + 8px; anchor-y: root.absolute-position.y + root.height + 6px; }
+}
+
+component HelpfulLabel inherits Rectangle {
+    in property <string> text;
+    in property <string> help: "";
+    in property <string> a11y-label: "";
+    in property <color> text-color: #000000;
+    preferred-width: label.preferred-width;
+    preferred-height: label.preferred-height;
+    property <bool> hovered: hover.has-hover;
+    hover := TouchArea {
+        mouse-cursor: MouseCursor.default;
+        label := Text {
+            width: 100%;
+            height: 100%;
+            text: root.text;
+            color: root.text-color;
+            accessible-label: root.a11y-label;
+        }
+    }
+    TipDwell { help: root.help; hovered: root.hovered; anchor-x: root.absolute-position.x + 8px; anchor-y: root.absolute-position.y + root.height + 6px; }
 }
 
 export component HelpWindow inherits Window {
@@ -33,8 +211,9 @@ export component HelpWindow inherits Window {
         Text { text: "Help"; font-size: 24px; }
         Text { text: "Rustrepo-sanitizer creates deterministic, sanitized review bundles from Git repositories. The GUI and CLI use the same sanitizer engine. Select a repository, choose an output folder and options, then activate Sanitize; progress, results, and validation messages appear in the main window."; wrap: word-wrap; accessible-label: "Rustrepo Sanitizer help text"; }
         Text { text: "Shortcuts: Ctrl+O select repository · Ctrl+Shift+O select output folder · Ctrl+Enter sanitize · Escape cancel · F1 help · Ctrl+, settings · Ctrl+Q quit"; wrap: word-wrap; accessible-label: "Keyboard shortcut reference"; }
-        Button { text: "Close"; clicked => { root.close(); } }
+        HorizontalLayout { HelpfulButton { text: "Close"; help: "Close this help window."; a11y-label: "Close help"; clicked => { root.close(); } } }
     }
+    HelpOverlay { window-width: root.width; window-height: root.height; }
 }
 
 export component SettingsWindow inherits Window {
@@ -52,16 +231,17 @@ export component SettingsWindow inherits Window {
     VerticalBox { padding: 24px; spacing: 10px;
         Text { text: "Password complexity"; font-size: 24px; }
         Text { text: "These settings validate passwords before an encryption-capable archive is written. Passwords are never persisted."; wrap: word-wrap; }
-        LineEdit { text <=> root.minimum-length; placeholder-text: "Minimum length"; accessible-label: "Minimum password length"; }
-        CheckBox { text: "Require uppercase"; checked <=> root.require-uppercase; }
-        CheckBox { text: "Require lowercase"; checked <=> root.require-lowercase; }
-        CheckBox { text: "Require number"; checked <=> root.require-number; }
-        CheckBox { text: "Require special character"; checked <=> root.require-special; }
+        HelpfulLineEdit { text <=> root.minimum-length; placeholder-text: "Minimum length"; help: "Minimum number of characters required in a password."; a11y-label: "Minimum password length"; }
+        HelpfulCheckBox { text: "Require uppercase"; checked <=> root.require-uppercase; help: "Require at least one uppercase letter in the password."; a11y-label: "Require uppercase"; }
+        HelpfulCheckBox { text: "Require lowercase"; checked <=> root.require-lowercase; help: "Require at least one lowercase letter in the password."; a11y-label: "Require lowercase"; }
+        HelpfulCheckBox { text: "Require number"; checked <=> root.require-number; help: "Require at least one digit in the password."; a11y-label: "Require number"; }
+        HelpfulCheckBox { text: "Require special character"; checked <=> root.require-special; help: "Require at least one special character in the password."; a11y-label: "Require special character"; }
         HorizontalLayout {
-            Button { text: "Apply"; clicked => { root.apply-policy(); } }
-            Button { text: "Close"; clicked => { root.close(); } }
+            HelpfulButton { text: "Apply"; help: "Apply these password rules to the main window."; a11y-label: "Apply password rules"; clicked => { root.apply-policy(); } }
+            HelpfulButton { text: "Close"; help: "Close this window without applying changes."; a11y-label: "Close settings"; clicked => { root.close(); } }
         }
     }
+    HelpOverlay { window-width: root.width; window-height: root.height; }
 }
 
 export component AboutWindow inherits Window {
@@ -80,10 +260,11 @@ export component AboutWindow inherits Window {
         Text { text: "Apache License 2.0"; }
         Text { text: "Slint is used under its applicable selected Slint license."; wrap: word-wrap; }
         Text { text: "Architecture, modeling, direction, and technical review by Nicholas; implementation support provided by AI agents including OpenAI Codex."; wrap: word-wrap; }
-        Button { text: "Project website"; clicked => { root.open-website("https://itsulu.com/Rustrepo"); } }
-        Button { text: "Authoritative Forgejo repository"; clicked => { root.open-website("https://git.itsulu.com/itsulu/Rustrepo-sanitizer"); } }
-        Button { text: "Close"; clicked => { root.close(); } }
+        HelpfulButton { text: "Project website"; help: "Open the project website in a browser."; a11y-label: "Open project website"; clicked => { root.open-website("https://itsulu.com/Rustrepo"); } }
+        HelpfulButton { text: "Authoritative Forgejo repository"; help: "Open the authoritative Forgejo repository."; a11y-label: "Open Forgejo repository"; clicked => { root.open-website("https://git.itsulu.com/itsulu/Rustrepo-sanitizer"); } }
+        HelpfulButton { text: "Close"; help: "Close this window."; a11y-label: "Close about"; clicked => { root.close(); } }
     }
+    HelpOverlay { window-width: root.width; window-height: root.height; }
 }
 
 export component MainWindow inherits Window {
@@ -149,63 +330,64 @@ export component MainWindow inherits Window {
     VerticalBox { padding: 24px; spacing: 14px;
         Text { text: "Rustrepo Sanitizer"; font-size: 28px; }
         Text { text: "Create a safe, deterministic AI review bundle."; color: #667085; }
-        Text { text: "Repository"; accessible-label: "Repository label"; }
+        HelpfulLabel { text: "Repository"; help: "Git repository to sanitize; defaults to the current directory."; a11y-label: "Repository label"; }
         HorizontalLayout { spacing: 8px;
-            repository := HelpfulLineEdit { text <=> root.repository-path; placeholder-text: "Path to a Git repository"; help: "Choose the Git repository to sanitize."; accessible-id: "repository-path"; accessible-label: "Repository path"; }
-            HelpfulButton { text: "Browse…"; help: "Select a repository folder using the system picker."; accessible-id: "browse-repository"; accessible-label: "Browse for repository"; clicked => { root.browse(); } }
+            repository := HelpfulLineEdit { text <=> root.repository-path; placeholder-text: "Path to a Git repository"; help: "Git repository to sanitize; defaults to the current directory."; a11y-id: "repository-path"; a11y-label: "Repository path"; }
+            HelpfulButton { text: "Browse…"; help: "Select a repository folder using the system picker."; a11y-id: "browse-repository"; a11y-label: "Browse for repository"; clicked => { root.browse(); } }
         }
-        Text { text: "Output File"; }
+        HelpfulLabel { text: "Output File"; help: "Destination archive path; leave blank to derive a filename in the repository root."; a11y-label: "Output file label"; }
         HorizontalLayout { spacing: 8px;
-            output := HelpfulLineEdit { text <=> root.output-path; placeholder-text: "Automatic filename"; help: "Leave empty for a repository-root filename, or provide an explicit output path."; accessible-id: "output-path"; accessible-label: "Output file path"; user-edited(_) => { root.output-path-automatic = false; } }
-            HelpfulButton { text: "Browse…"; help: "Select the output folder; the filename is derived automatically."; accessible-id: "browse-output"; accessible-label: "Browse for output folder"; clicked => { root.browse-output(repository.text, format.current-index, compression.current-index, timestamp.checked); } }
+            output := HelpfulLineEdit { text <=> root.output-path; placeholder-text: "Automatic filename"; help: "Destination archive path; leave blank to derive a filename in the repository root."; a11y-id: "output-path"; a11y-label: "Output file path"; user-edited(_) => { root.output-path-automatic = false; } }
+            HelpfulButton { text: "Browse…"; help: "Select the output folder; the filename is derived automatically."; a11y-id: "browse-output"; a11y-label: "Browse for output folder"; clicked => { root.browse-output(repository.text, format.current-index, compression.current-index, timestamp.checked); } }
         }
-        untracked := HelpfulCheckBox { text: "Include untracked files"; help: "Include files not currently tracked by Git, subject to safety filters."; accessible-id: "include-untracked"; accessible-label: "Include untracked files"; }
-        dry-run := HelpfulCheckBox { text: "Dry run (preview only)"; help: "Inspect and validate without writing an archive."; accessible-id: "dry-run"; accessible-label: "Dry run"; }
-        timestamp := HelpfulCheckBox { text: "Timestamp output filename"; help: "Add a deterministic timestamp and commit identifier to the generated filename."; checked: true; accessible-id: "timestamp-name"; accessible-label: "Timestamp output filename"; checked-changed(value) => { root.timestamp-changed(value); } }
+        untracked := HelpfulCheckBox { text: "Include untracked files"; help: "Also include files Git does not track yet, subject to safety filters."; a11y-id: "include-untracked"; a11y-label: "Include untracked files"; }
+        dry-run := HelpfulCheckBox { text: "Dry run (preview only)"; help: "Scan and report results without writing an archive."; a11y-id: "dry-run"; a11y-label: "Dry run"; }
+        timestamp := HelpfulCheckBox { text: "Timestamp output filename"; help: "Add a timestamp and commit id to the automatic output filename."; checked: true; a11y-id: "timestamp-name"; a11y-label: "Timestamp output filename"; checked-changed(value) => { root.timestamp-changed(value); } }
         HorizontalLayout { spacing: 12px;
-            Text { text: "Archive"; }
-            format := HelpfulComboBox { model: ["tar", "zip", "7z", "none"]; help: "Choose the archive container used for the sanitized bundle."; accessible-id: "archive-format"; accessible-label: "Archive format"; selection-changed(index) => { root.zip-password = ""; root.archive-changed(index); } }
-            Text { text: "Compression"; }
-            compression := HelpfulComboBox { model: root.compression-options; help: "Choose a compressor compatible with the selected archive."; accessible-id: "compression"; accessible-label: "Compression"; selection-changed(index) => { root.compression-changed(format.current-index, index); } }
-            Text { text: "Report"; }
-            report := HelpfulComboBox { model: ["Markdown", "JSON", "None"]; help: "Choose the optional human-readable or JSON sanitization report."; accessible-id: "report"; accessible-label: "Report format"; }
+            HelpfulLabel { text: "Archive"; help: "Choose the container format for the sanitized bundle."; a11y-label: "Archive label"; }
+            format := HelpfulComboBox { model: ["tar", "zip", "7z", "none"]; help: "Archive container: none (JSONL stream), tar, zip, or 7z."; a11y-id: "archive-format"; a11y-label: "Archive format"; selection-changed(index) => { root.zip-password = ""; root.archive-changed(index); } }
+            HelpfulLabel { text: "Compression"; help: "Choose the compressor used for the bundle."; a11y-label: "Compression label"; }
+            compression := HelpfulComboBox { model: root.compression-options; help: "Compression codec; only codecs valid for the chosen archive are accepted."; a11y-id: "compression"; a11y-label: "Compression"; selection-changed(index) => { root.compression-changed(format.current-index, index); } }
+            HelpfulLabel { text: "Report"; help: "Choose the optional human-readable or JSON report."; a11y-label: "Report label"; }
+            report := HelpfulComboBox { model: ["Markdown", "JSON", "None"]; help: "Report format: markdown, json, or none."; a11y-id: "report"; a11y-label: "Report format"; }
         }
-        advanced := HelpfulCheckBox { text: "Advanced options"; help: "Configure redaction, limits, filters, and encryption options."; accessible-id: "advanced-options"; accessible-label: "Advanced options"; }
+        advanced := HelpfulCheckBox { text: "Advanced options"; help: "Show redaction, size limit, filter, and password controls."; a11y-id: "advanced-options"; a11y-label: "Advanced options"; }
         ScrollView { enabled: true; opacity: advanced.checked ? 1 : 0; height: advanced.checked ? 300px : 0px; VerticalBox { spacing: 8px;
-            HelpfulCheckBox { text: "Redact detected secrets"; help: "Replace high-confidence secret values with redaction markers."; checked <=> root.redact-secrets; accessible-label: "Redact secrets"; }
-            HelpfulCheckBox { text: "Fail when secrets are detected"; help: "Stop instead of producing output when a secret is detected."; checked <=> root.fail-on-secret; accessible-label: "Fail on secret"; }
-            Text { text: "Maximum file size (bytes)"; }
-            HelpfulLineEdit { text <=> root.max-file-size; help: "Exclude files larger than this number of bytes."; accessible-label: "Maximum file size"; }
-            Text { text: "Include Glob"; }
+            HelpfulCheckBox { text: "Redact detected secrets"; help: "Replace high-confidence secret values with redaction markers."; checked <=> root.redact-secrets; a11y-label: "Redact secrets"; }
+            HelpfulCheckBox { text: "Fail when secrets are detected"; help: "Stop with an error instead of producing output when a secret is found."; checked <=> root.fail-on-secret; a11y-label: "Fail on secret"; }
+            HelpfulLabel { text: "Maximum file size (bytes)"; help: "Files above this byte limit are excluded."; a11y-label: "Maximum file size label"; }
+            HelpfulLineEdit { text <=> root.max-file-size; help: "Skip files larger than this number of bytes."; a11y-label: "Maximum file size"; }
+            HelpfulLabel { text: "Include Glob"; help: "Only files matching these patterns are packed."; a11y-label: "Include glob label"; }
             HorizontalLayout { spacing: 6px;
-                include-choice := ComboBox { model: ["docs/**/*.md", "src/**/*.rs", "tests/**", ".forgejo/**", "target/**", "vendor/**", "*.log"]; accessible-label: "Common include glob patterns"; }
-                include-entry := HelpfulLineEdit { help: "Enter any Git-style glob pattern to include."; placeholder-text: "Custom pattern"; accessible-label: "Custom include glob"; }
-                HelpfulButton { text: "Add"; help: "Add this include pattern to the selected list."; clicked => { root.add-include(include-entry.text == "" ? include-choice.current-value : include-entry.text); } }
+                include-choice := HelpfulComboBox { model: ["docs/**/*.md", "src/**/*.rs", "tests/**", ".forgejo/**", "target/**", "vendor/**", "*.log"]; help: "Only files matching these patterns are packed."; a11y-label: "Common include glob patterns"; }
+                include-entry := HelpfulLineEdit { help: "Type a Git-style glob pattern to include."; placeholder-text: "Custom pattern"; a11y-label: "Custom include glob"; }
+                HelpfulButton { text: "Add"; help: "Add the typed or selected include pattern."; a11y-label: "Add"; clicked => { root.add-include(include-entry.text == "" ? include-choice.current-value : include-entry.text); } }
             }
             for pattern in root.include-patterns: HorizontalLayout { spacing: 6px;
-                Text { text: pattern; accessible-label: "Selected include glob"; }
-                Button { text: "Remove"; accessible-label: "Remove selected include glob"; clicked => { root.remove-include(pattern); } }
+                HelpfulLabel { text: pattern; help: "Only files matching these patterns are packed."; a11y-label: "Selected include glob"; }
+                HelpfulButton { text: "Remove"; help: "Remove this include pattern from the list."; a11y-label: "Remove selected include glob"; clicked => { root.remove-include(pattern); } }
             }
-            Text { text: "Exclude Glob"; }
+            HelpfulLabel { text: "Exclude Glob"; help: "Files matching these patterns are left out."; a11y-label: "Exclude glob label"; }
             HorizontalLayout { spacing: 6px;
-                exclude-choice := ComboBox { model: ["docs/**", "target/**", "vendor/**", "node_modules/**", ".idea/**", "*.log", "*.tmp"]; accessible-label: "Common exclude glob patterns"; }
-                exclude-entry := HelpfulLineEdit { help: "Enter any Git-style glob pattern to exclude."; placeholder-text: "Custom pattern"; accessible-label: "Custom exclude glob"; }
-                HelpfulButton { text: "Add"; help: "Add this exclude pattern to the selected list."; clicked => { root.add-exclude(exclude-entry.text == "" ? exclude-choice.current-value : exclude-entry.text); } }
+                exclude-choice := HelpfulComboBox { model: ["docs/**", "target/**", "vendor/**", "node_modules/**", ".idea/**", "*.log", "*.tmp"]; help: "Files matching these patterns are left out."; a11y-label: "Common exclude glob patterns"; }
+                exclude-entry := HelpfulLineEdit { help: "Type a Git-style glob pattern to exclude."; placeholder-text: "Custom pattern"; a11y-label: "Custom exclude glob"; }
+                HelpfulButton { text: "Add"; help: "Add the typed or selected exclude pattern."; a11y-label: "Add"; clicked => { root.add-exclude(exclude-entry.text == "" ? exclude-choice.current-value : exclude-entry.text); } }
             }
             for pattern in root.exclude-patterns: HorizontalLayout { spacing: 6px;
-                Text { text: pattern; accessible-label: "Selected exclude glob"; }
-                Button { text: "Remove"; accessible-label: "Remove selected exclude glob"; clicked => { root.remove-exclude(pattern); } }
+                HelpfulLabel { text: pattern; help: "Files matching these patterns are left out."; a11y-label: "Selected exclude glob"; }
+                HelpfulButton { text: "Remove"; help: "Remove this exclude pattern from the list."; a11y-label: "Remove selected exclude glob"; clicked => { root.remove-exclude(pattern); } }
             }
             if format.current-index == 1: VerticalBox {
-                Text { text: "Password (never persisted)"; }
-                HelpfulLineEdit { text <=> root.zip-password; help: "Protect an encryption-capable archive; the password is never persisted or logged."; input-type: InputType.password; accessible-label: "Password"; }
+                HelpfulLabel { text: "Password (never persisted)"; help: "Optional encryption for ZIP archives; the password is never persisted."; a11y-label: "Password label"; }
+                HelpfulLineEdit { text <=> root.zip-password; help: "ZIP AES password; never stored in the archive or logs."; input-type: InputType.password; a11y-label: "Password"; }
             }
         }}
         Text { text: root.status; accessible-label: root.status; }
-        HelpfulButton { text: "Open output folder"; help: "Open the folder containing the completed output."; enabled: root.result-path != ""; accessible-id: "open-result"; accessible-label: "Open output folder"; clicked => { root.open-result(); } }
+        HelpfulButton { text: "Open output folder"; help: "Open the folder containing the finished archive."; enabled: root.result-path != ""; a11y-id: "open-result"; a11y-label: "Open output folder"; clicked => { root.open-result(); } }
         HorizontalLayout { alignment: end; spacing: 10px;
-            HelpfulButton { text: "Cancel"; help: "Stop the current operation before it scans or writes more files."; enabled: root.running; accessible-label: "Cancel sanitization"; clicked => { root.cancel(); } }
-            HelpfulButton { text: "Sanitize"; help: "Run the shared sanitizer engine with the selected options."; enabled: !root.running; accessible-id: "sanitize"; accessible-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
+            HelpfulButton { text: "Cancel"; help: "Stop the current sanitization before it finishes."; enabled: root.running; a11y-label: "Cancel sanitization"; clicked => { root.cancel(); } }
+            HelpfulButton { text: "Sanitize"; help: "Build the sanitized archive with the selected options."; enabled: !root.running; a11y-id: "sanitize"; a11y-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size, root.include-glob, root.exclude-glob, root.zip-password); } }
         }
     }
+    HelpOverlay { window-width: root.width; window-height: root.height; }
 }
