@@ -279,9 +279,25 @@ mod tests {
     }
 
     #[test]
-    fn current_release_metadata_targets_0_5_0() {
+    fn current_release_metadata_targets_0_6_0() {
         let manifest = include_str!("../Cargo.toml");
-        assert!(manifest.contains("version = \"0.5.0\""));
+        assert!(manifest.contains("version = \"0.6.0\""));
+    }
+
+    #[test]
+    fn release_workflow_publishes_the_web_artifact() {
+        let workflow = include_str!("../.forgejo/workflows/release-build.yml");
+        assert!(workflow.contains("rustrepo-sanitizer-web-${version}-linux-glibc-x86_64.tar.gz"));
+        let docs = include_str!("../docs/release-process.md");
+        assert!(docs.contains("rustrepo-sanitizer-web-<version>-linux-glibc-x86_64.tar.gz"));
+    }
+
+    #[test]
+    fn forgejo_ci_runs_workspace_quality_gates() {
+        let workflow = include_str!("../.forgejo/workflows/ci.yml");
+        assert!(workflow.contains("cargo test --workspace --all-features"));
+        assert!(workflow.contains("cargo clippy --workspace --all-targets --all-features"));
+        assert!(workflow.contains("cargo build -p itsulu-repo-sanitizer-web"));
     }
 
     #[test]

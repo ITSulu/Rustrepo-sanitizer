@@ -26,6 +26,7 @@ Every `vX.Y.Z` release publishes exactly these files, plus `SHA256SUMS`:
 - RPM x86_64: `rustrepo-sanitizer-<version>-linux-x86_64.rpm`
 - Arch x86_64: `rustrepo-sanitizer-<version>-arch-x86_64.pkg.tar.zst`
 - Windows x86_64 ZIP: `rustrepo-sanitizer-<version>-windows-x86_64.zip`
+- Linux x86_64 web server: `rustrepo-sanitizer-web-<version>-linux-glibc-x86_64.tar.gz`
 - `SHA256SUMS`: hex digest and filename for every other artifact above
 
 `SHA256SUMS` covers every other file in the matrix and never itself. The

@@ -42,6 +42,21 @@ The archive contains sanitized source files plus `SANITIZATION-REPORT.md`,
 `REPOSITORY-INVENTORY.md`, `SECRET-AUDIT.md`, `SHA256SUMS`, and `manifest.json`.
 Reports contain counts, paths, reasons, and checksums—not secret values.
 
+## Web UI
+
+A self-hosted Axum + Leptos web frontend is included:
+
+```bash
+cargo run -p itsulu-repo-sanitizer-web     # http://127.0.0.1:8787
+```
+
+It exposes the same options as the CLI and desktop GUI and adds five repository
+inputs: a server-local path (restricted to `RUSTREPO_WEB_LOCAL_ROOTS`), a public
+https Git URL, an uploaded zip/tar archive, and Forgejo/GitHub repository
+selectors cloned server-side. Set `RUSTREPO_WEB_TOKEN` to require a bearer token
+on `/api/*`, and `RUSTREPO_WEB_{FORGEJO,GITHUB}_TOKEN` for integrations; tokens
+stay on the server and never reach the browser. See [docs/web.md](docs/web.md).
+
 ## Usage
 
 ```text

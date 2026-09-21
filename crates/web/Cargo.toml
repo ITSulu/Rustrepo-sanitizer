@@ -1,6 +1,6 @@
 [package]
 name = "itsulu-repo-sanitizer-web"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "Axum/Leptos web frontend for Rustrepo-sanitizer"
 license = "Apache-2.0"
