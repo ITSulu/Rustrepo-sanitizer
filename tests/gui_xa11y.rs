@@ -13,7 +13,6 @@ fn discovers_slint_controls_semantically() {
         .into_iter()
         .find(|app| app.name.to_ascii_lowercase().contains("rustrepo"))
         .expect("Slint application must be discoverable through AT-SPI");
-    let tree = app.dump(Some(8)).expect("AT-SPI tree must be readable");
     assert!(app.name.to_ascii_lowercase().contains("rustrepo"));
     app.locator(r##"text_field[name="Repository path"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
@@ -33,6 +32,7 @@ fn discovers_slint_controls_semantically() {
     app.locator(r##"combo_box[name="Compression"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("Compression selector must be semantically discoverable");
+    let tree = app.dump(Some(8)).expect("AT-SPI tree must be readable");
     assert!(
         tree.contains("Help"),
         "desktop Help menu must be represented in the accessibility tree"
