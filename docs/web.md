@@ -129,3 +129,18 @@ values from a debug test build (release builds are faster and smaller):
 
 Server-rendered HTML keeps the browser payload minimal: the UI is fully
 keyboard-operable without JavaScript, so there is no hydration bundle to ship.
+
+### Unified-binary idle memory
+
+Release-build idle RSS (`VmRSS`), measured after startup with the server running:
+
+| Configuration | Idle RSS |
+|---|---|
+| 0.6.0 `rustrepo-sanitizer-web` (web only) | ~5 MiB |
+| 0.6.1 `Rustrepo-sanitizer --web` | ~10 MiB |
+| 0.6.1 `Rustrepo-sanitizer --gui --web` | ~185 MiB (Slint/winit + GL) |
+
+Web-only memory rises slightly over 0.6.0 because the same binary also links the
+GUI toolkit; the GUI stack is only initialized when `--gui` is used. GUI + Web
+adds the Slint windowing/renderer footprint and runs both interfaces in one
+process with no helper executable.
