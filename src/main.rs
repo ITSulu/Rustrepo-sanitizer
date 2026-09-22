@@ -1,21 +1,51 @@
-use std::{io::Read, path::PathBuf, process::ExitCode};
+//! Unified `Rustrepo-sanitizer` executable.
+//!
+//! One binary provides the CLI, the Slint desktop GUI, and the Leptos/Axum web
+//! UI. `--gui` and `--web` select the graphical interfaces (alone or together);
+//! with neither, the sanitize CLI runs. No helper process is spawned.
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::{io::Read, net::SocketAddr, path::PathBuf, process::ExitCode};
+
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use itsulu_repo_sanitizer::help;
 use itsulu_repo_sanitizer::sanitizer::{
     default_output_path, run, ArchiveFormat, Compression, Config, PasswordPolicy, ReportFormat,
 };
 
+const BIN: &str = "Rustrepo-sanitizer";
+
 #[derive(Parser)]
 #[command(
-    name = "itsulu-repo-sanitizer",
+    name = "Rustrepo-sanitizer",
     version,
     max_term_width = 100,
-    about = "Create a safe AI review archive from a Git repository"
+    about = "Sanitize Git repositories for safe AI review (CLI, desktop GUI, and web UI)"
 )]
 struct Cli {
+    #[arg(long, help = help::LAUNCH_GUI, help_heading = help::GROUP_LAUNCH)]
+    gui: bool,
+    #[arg(long, help = help::LAUNCH_WEB, help_heading = help::GROUP_LAUNCH)]
+    web: bool,
+
+    #[arg(long, value_name = "ADDR", help = help::WEB_BIND, help_heading = help::GROUP_WEB, requires = "web")]
+    web_bind: Option<SocketAddr>,
+    #[arg(long, value_name = "TOKEN", help = help::WEB_TOKEN, help_heading = help::GROUP_WEB, requires = "web")]
+    web_token: Option<String>,
+    #[arg(long, value_name = "DIR", help = help::WEB_ROOT, help_heading = help::GROUP_WEB, requires = "web")]
+    web_root: Option<PathBuf>,
+    #[arg(long, value_name = "PATHS", help = help::WEB_LOCAL_ROOTS, help_heading = help::GROUP_WEB, requires = "web")]
+    web_local_roots: Option<String>,
+    #[arg(long, value_name = "URL", help = help::WEB_FORGEJO_BASE, help_heading = help::GROUP_WEB, requires = "web")]
+    web_forgejo_base: Option<String>,
+    #[arg(long, value_name = "TOKEN", help = help::WEB_FORGEJO_TOKEN, help_heading = help::GROUP_WEB, requires = "web")]
+    web_forgejo_token: Option<String>,
+    #[arg(long, value_name = "URL", help = help::WEB_GITHUB_API, help_heading = help::GROUP_WEB, requires = "web")]
+    web_github_api: Option<String>,
+    #[arg(long, value_name = "TOKEN", help = help::WEB_GITHUB_TOKEN, help_heading = help::GROUP_WEB, requires = "web")]
+    web_github_token: Option<String>,
+
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -172,13 +202,123 @@ enum CliReportFormat {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if matches!(cli.command, Command::ListFormats) {
-        itsulu_repo_sanitizer::sanitizer::print_formats();
-        return ExitCode::SUCCESS;
+
+    if (cli.gui || cli.web) && cli.command.is_some() {
+        eprintln!("{BIN}: --gui/--web cannot be combined with a subcommand");
+        return ExitCode::from(2);
     }
-    let Command::Sanitize(args) = cli.command else {
-        unreachable!()
+    if cli.gui || cli.web {
+        return launch(&cli);
+    }
+
+    match cli.command {
+        Some(Command::ListFormats) => {
+            itsulu_repo_sanitizer::sanitizer::print_formats();
+            ExitCode::SUCCESS
+        }
+        Some(Command::Sanitize(args)) => run_sanitize(args),
+        None => {
+            // No launch mode and no subcommand: show help on stderr.
+            let mut command = Cli::command();
+            let _ = command.print_help();
+            ExitCode::from(2)
+        }
+    }
+}
+
+#[cfg(feature = "web")]
+fn web_settings(cli: &Cli) -> itsulu_repo_sanitizer::web::state::WebSettings {
+    let mut settings = itsulu_repo_sanitizer::web::state::WebSettings::from_env();
+    if let Some(bind) = cli.web_bind {
+        settings.bind = bind;
+    }
+    if let Some(token) = &cli.web_token {
+        settings.token = Some(token.clone());
+    }
+    if let Some(root) = &cli.web_root {
+        settings.root = root.clone();
+    }
+    if let Some(roots) = &cli.web_local_roots {
+        settings.local_roots = roots
+            .split(':')
+            .filter(|entry| !entry.trim().is_empty())
+            .map(PathBuf::from)
+            .collect();
+    }
+    if let Some(base) = &cli.web_forgejo_base {
+        settings.forgejo_base = url::Url::parse(base).ok();
+    }
+    if let Some(token) = &cli.web_forgejo_token {
+        settings.forgejo_token = Some(token.clone());
+    }
+    if let Some(api) = &cli.web_github_api {
+        settings.github_api = url::Url::parse(api).ok();
+    }
+    if let Some(token) = &cli.web_github_token {
+        settings.github_token = Some(token.clone());
+    }
+    settings
+}
+
+fn launch(cli: &Cli) -> ExitCode {
+    #[cfg(all(feature = "gui", feature = "web"))]
+    if cli.gui && cli.web {
+        return run_gui_and_web(web_settings(cli));
+    }
+    #[cfg(feature = "gui")]
+    if cli.gui {
+        return match itsulu_repo_sanitizer::gui::run_gui() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("{BIN}: GUI error: {err}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    #[cfg(feature = "web")]
+    if cli.web {
+        return match itsulu_repo_sanitizer::web::server::run_web_only(web_settings(cli)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("{BIN}: web error: {err:#}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    let _ = cli;
+    eprintln!("{BIN}: this build has no GUI or web support enabled");
+    ExitCode::from(2)
+}
+
+/// Runs the GUI on the main thread and the web server on a background thread,
+/// so neither interface blocks the other. Closing the GUI shuts the server down.
+#[cfg(all(feature = "gui", feature = "web"))]
+fn run_gui_and_web(settings: itsulu_repo_sanitizer::web::state::WebSettings) -> ExitCode {
+    let (handle, shutdown) = match itsulu_repo_sanitizer::web::server::spawn_web(settings) {
+        Ok(pair) => pair,
+        Err(err) => {
+            eprintln!("{BIN}: web error: {err:#}");
+            return ExitCode::from(1);
+        }
     };
+    let gui_result = itsulu_repo_sanitizer::gui::run_gui();
+    let _ = shutdown.send(());
+    let web_result = handle.join();
+    match (gui_result, web_result) {
+        (Ok(()), Ok(Ok(()))) => ExitCode::SUCCESS,
+        (gui, web) => {
+            if let Err(err) = gui {
+                eprintln!("{BIN}: GUI error: {err}");
+            }
+            if let Ok(Err(err)) = web {
+                eprintln!("{BIN}: web error: {err:#}");
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn run_sanitize(args: SanitizeArgs) -> ExitCode {
     let format = args.archive;
     let report = match args.report {
         CliReportFormat::Markdown => ReportFormat::Markdown,
@@ -195,7 +335,7 @@ fn main() -> ExitCode {
         ) {
             Ok(path) => path,
             Err(err) => {
-                eprintln!("itsulu-repo-sanitizer: {err:#}");
+                eprintln!("{BIN}: {err:#}");
                 return ExitCode::from(if err.to_string().contains("compression") {
                     2
                 } else {
@@ -207,7 +347,7 @@ fn main() -> ExitCode {
     let password = match read_password(args.password_file.as_deref(), args.password_stdin) {
         Ok(password) => password,
         Err(err) => {
-            eprintln!("itsulu-repo-sanitizer: {err}");
+            eprintln!("{BIN}: {err}");
             return ExitCode::from(2);
         }
     };
@@ -250,7 +390,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(err) => {
-            eprintln!("itsulu-repo-sanitizer: {err:#}");
+            eprintln!("{BIN}: {err:#}");
             let message = err.to_string().to_ascii_lowercase();
             let code = if message.contains("secret detected") {
                 4
@@ -297,7 +437,7 @@ mod tests {
     #[test]
     fn sanitize_parser_preserves_safe_defaults_and_explicit_options() {
         let cli = Cli::try_parse_from([
-            "itsulu-repo-sanitizer",
+            BIN,
             "sanitize",
             "repo",
             "--archive",
@@ -315,7 +455,7 @@ mod tests {
             "--no-redact",
         ])
         .unwrap();
-        let Command::Sanitize(args) = cli.command else {
+        let Command::Sanitize(args) = cli.command.unwrap() else {
             panic!("expected sanitize command")
         };
         assert_eq!(args.repository, PathBuf::from("repo"));
@@ -330,7 +470,7 @@ mod tests {
     #[test]
     fn password_file_and_stdin_are_mutually_exclusive() {
         assert!(Cli::try_parse_from([
-            "itsulu-repo-sanitizer",
+            BIN,
             "sanitize",
             "--password-file",
             "password.txt",
@@ -341,8 +481,8 @@ mod tests {
 
     #[test]
     fn sanitize_parser_uses_documented_defaults() {
-        let cli = Cli::try_parse_from(["itsulu-repo-sanitizer", "sanitize"]).unwrap();
-        let Command::Sanitize(args) = cli.command else {
+        let cli = Cli::try_parse_from([BIN, "sanitize"]).unwrap();
+        let Command::Sanitize(args) = cli.command.unwrap() else {
             panic!("expected sanitize command")
         };
         assert_eq!(args.repository, PathBuf::from("."));
@@ -351,5 +491,18 @@ mod tests {
         assert!(matches!(args.report, CliReportFormat::Markdown));
         assert!(args.redact && args.timestamp_name);
         assert_eq!(args.password_min_length, 8);
+    }
+
+    #[test]
+    fn launch_modes_parse_and_web_options_require_web() {
+        let cli = Cli::try_parse_from([BIN, "--gui"]).unwrap();
+        assert!(cli.gui && !cli.web);
+        let cli = Cli::try_parse_from([BIN, "--web", "--web-bind", "127.0.0.1:9000"]).unwrap();
+        assert!(cli.web && !cli.gui);
+        assert_eq!(cli.web_bind.unwrap().port(), 9000);
+        let cli = Cli::try_parse_from([BIN, "--gui", "--web"]).unwrap();
+        assert!(cli.gui && cli.web);
+        // Web options are only valid together with --web.
+        assert!(Cli::try_parse_from([BIN, "--web-bind", "127.0.0.1:9000"]).is_err());
     }
 }

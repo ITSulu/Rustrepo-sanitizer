@@ -21,7 +21,7 @@ fn output_path_for_capability_change(current: &str, automatic: bool, extension: 
 
 #[allow(dead_code)]
 fn settings_values_for_policy(
-    policy: &itsulu_repo_sanitizer::security::PasswordPolicy,
+    policy: &crate::security::PasswordPolicy,
 ) -> (String, bool, bool, bool, bool) {
     (
         policy.minimum_length.to_string(),
@@ -34,9 +34,7 @@ fn settings_values_for_policy(
 
 #[cfg(feature = "gui")]
 fn refresh_output_extension(window: &MainWindow, format_index: i32, compression_index: i32) {
-    use itsulu_repo_sanitizer::sanitizer::{
-        compression_for_gui_selection, output_extension, ArchiveFormat,
-    };
+    use crate::sanitizer::{compression_for_gui_selection, output_extension, ArchiveFormat};
     let format = match format_index {
         1 => ArchiveFormat::Zip,
         2 => ArchiveFormat::SevenZip,
@@ -58,9 +56,8 @@ fn refresh_output_extension(window: &MainWindow, format_index: i32, compression_
     }
 }
 
-#[cfg(feature = "gui")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use itsulu_repo_sanitizer::sanitizer::{
+pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::sanitizer::{
         add_pattern, compatible_compressions, compression_capability,
         compression_for_gui_selection, default_output_path, remove_pattern, run_with_progress,
         validate_config, ArchiveFormat, Compression, Config, PasswordPolicy, ProgressEvent,
@@ -508,11 +505,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.run()?;
     Ok(())
 }
-#[cfg(not(feature = "gui"))]
-fn main() {
-    eprintln!("GUI support is disabled; run with --features gui");
-    std::process::exit(2);
-}
 
 #[cfg(test)]
 mod tests {
@@ -525,7 +517,7 @@ mod tests {
     }
 
     use super::{result_path_for_outcome, settings_values_for_policy};
-    use itsulu_repo_sanitizer::security::PasswordPolicy;
+    use crate::security::PasswordPolicy;
     use std::path::Path;
 
     #[test]

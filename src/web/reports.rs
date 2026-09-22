@@ -7,12 +7,12 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use crate::sanitizer::{ArchiveFormat, Compression};
 use anyhow::{Context, Result};
-use itsulu_repo_sanitizer::sanitizer::{ArchiveFormat, Compression};
 
 /// Report members the web UI can offer for download. The names come from the
 /// shared core so the two cannot drift.
-pub const REPORT_MEMBERS: &[&str] = itsulu_repo_sanitizer::sanitizer::REPORT_MEMBERS;
+pub const REPORT_MEMBERS: &[&str] = crate::sanitizer::REPORT_MEMBERS;
 
 fn member_is_report(name: &str) -> bool {
     REPORT_MEMBERS.contains(&name)

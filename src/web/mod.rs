@@ -20,6 +20,7 @@ pub mod jobs;
 pub mod reports;
 pub mod routes;
 pub mod security;
+pub mod server;
 pub mod state;
 pub mod ui;
 pub mod uploads;

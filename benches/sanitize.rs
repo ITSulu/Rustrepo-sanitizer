@@ -13,7 +13,7 @@ use std::{
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tempfile::TempDir;
 
-const EXE: &str = env!("CARGO_BIN_EXE_itsulu-repo-sanitizer");
+const EXE: &str = env!("CARGO_BIN_EXE_Rustrepo-sanitizer");
 
 struct Fixture {
     _temp: TempDir,

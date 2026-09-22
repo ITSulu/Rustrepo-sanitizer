@@ -13,13 +13,13 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use futures_util::future::BoxFuture;
 
-use crate::dto::InputSpec;
-use crate::integrations::Integrations;
-use crate::security::{
+use crate::web::dto::InputSpec;
+use crate::web::integrations::Integrations;
+use crate::web::security::{
     ensure_public_addrs, extract_tar, extract_zip, git_clone_argv, validate_git_url,
     ExtractionBudget, SecurityError,
 };
-use crate::uploads::UploadStore;
+use crate::web::uploads::UploadStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AcquireError {
@@ -263,7 +263,7 @@ impl Acquirer {
             .ok_or(AcquireError::UploadNotFound)?;
         std::fs::create_dir_all(dest).context("creating upload workspace")?;
         match entry.kind {
-            crate::uploads::UploadKind::Archive => {
+            crate::web::uploads::UploadKind::Archive => {
                 let file = std::fs::File::open(&entry.path).context("opening upload")?;
                 let name = entry.path.to_string_lossy().to_ascii_lowercase();
                 if name.ends_with(".zip") {
@@ -287,7 +287,7 @@ impl Acquirer {
                 let dir = find_repository_root(dest).ok_or(AcquireError::NotARepository)?;
                 Ok(dir)
             }
-            crate::uploads::UploadKind::Directory => {
+            crate::web::uploads::UploadKind::Directory => {
                 let canonical = std::fs::canonicalize(&entry.path)?;
                 if !canonical.starts_with(self.uploads.root()) {
                     return Err(AcquireError::Invalid("upload escaped its store".into()).into());
@@ -380,14 +380,14 @@ pub fn directory_size(path: &Path) -> u64 {
 
 /// Ensures a decoded upload name is a safe single path segment.
 pub fn validate_upload_name(name: &str) -> Result<String, SecurityError> {
-    crate::security::safe_output_name(name)
+    crate::web::security::safe_output_name(name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dto::InputSpec;
-    use crate::integrations::IntegrationsConfig;
+    use crate::web::dto::InputSpec;
+    use crate::web::integrations::IntegrationsConfig;
     use std::net::IpAddr;
 
     struct FakeRunner;

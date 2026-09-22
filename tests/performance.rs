@@ -13,12 +13,12 @@ use axum::body::Body;
 use axum::http::Request;
 use futures_util::future::BoxFuture;
 use http_body_util::BodyExt;
-use itsulu_repo_sanitizer_web::acquire::{CloneRunner, HostResolver};
-use itsulu_repo_sanitizer_web::integrations::{Integrations, IntegrationsConfig};
-use itsulu_repo_sanitizer_web::routes::build_router;
-use itsulu_repo_sanitizer_web::state::AppState;
-use itsulu_repo_sanitizer_web::uploads::UploadStore;
-use itsulu_repo_sanitizer_web::workspace::{Limits, WorkspaceManager};
+use itsulu_repo_sanitizer::web::acquire::{CloneRunner, HostResolver};
+use itsulu_repo_sanitizer::web::integrations::{Integrations, IntegrationsConfig};
+use itsulu_repo_sanitizer::web::routes::build_router;
+use itsulu_repo_sanitizer::web::state::AppState;
+use itsulu_repo_sanitizer::web::uploads::UploadStore;
+use itsulu_repo_sanitizer::web::workspace::{Limits, WorkspaceManager};
 use tower::ServiceExt;
 
 struct FakeRunner;
@@ -90,7 +90,7 @@ fn git_repo(root: &std::path::Path) -> PathBuf {
 
 #[tokio::test]
 async fn measures_idle_memory_latency_and_bundle_size() {
-    itsulu_repo_sanitizer_web::init_executor();
+    itsulu_repo_sanitizer::web::init_executor();
     let root = tempfile::tempdir().unwrap();
     let state = state(root.path(), Limits::default());
     let idle_rss = vm_rss_kib();
@@ -155,12 +155,12 @@ async fn measures_acquisition_sanitize_and_cleanup() {
     let mut ids = Vec::new();
     let start = Instant::now();
     for _ in 0..4 {
-        let id = itsulu_repo_sanitizer_web::jobs::start_job(
+        let id = itsulu_repo_sanitizer::web::jobs::start_job(
             state.clone(),
-            itsulu_repo_sanitizer_web::dto::InputSpec::LocalPath {
+            itsulu_repo_sanitizer::web::dto::InputSpec::LocalPath {
                 path: repo.to_string_lossy().into_owned(),
             },
-            itsulu_repo_sanitizer_web::dto::OptionsDto::default(),
+            itsulu_repo_sanitizer::web::dto::OptionsDto::default(),
         )
         .await
         .unwrap();

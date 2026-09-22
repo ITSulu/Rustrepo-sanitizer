@@ -5,7 +5,7 @@ use std::process::Command;
 use itsulu_repo_sanitizer::help;
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_itsulu-repo-sanitizer"))
+    let output = Command::new(env!("CARGO_BIN_EXE_Rustrepo-sanitizer"))
         .args(args)
         .output()
         .expect("the sanitizer binary must run");

@@ -83,7 +83,7 @@ pub struct Integrations {
 impl Integrations {
     pub fn new(config: IntegrationsConfig) -> Self {
         let client = reqwest::Client::builder()
-            .user_agent("rustrepo-sanitizer-web")
+            .user_agent("Rustrepo-sanitizer-web")
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("building HTTP client");

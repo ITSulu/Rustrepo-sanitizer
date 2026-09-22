@@ -4,7 +4,7 @@ expression: stdout
 ---
 Create a sanitized, reproducible review bundle from a Git repository
 
-Usage: itsulu-repo-sanitizer sanitize [OPTIONS] [REPOSITORY]
+Usage: Rustrepo-sanitizer sanitize [OPTIONS] [REPOSITORY]
 
 Options:
   -h, --help  Print help

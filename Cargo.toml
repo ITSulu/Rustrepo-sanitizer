@@ -1,25 +1,17 @@
-[workspace]
-members = ["crates/web"]
-# The Leptos web UI is a WASM (cdylib) crate built with Trunk; it is not part
-# of the native workspace build.
-exclude = ["crates/web-ui"]
-
 [package]
 name = "itsulu-repo-sanitizer"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Create deterministic, sanitized AI review bundles from Git repositories"
 license = "Apache-2.0"
 repository = "https://git.itsulu.com/itsulu/Rustrepo-sanitizer"
 readme = "README.md"
 
+# One unified executable for the CLI, the Slint desktop GUI, and the
+# Leptos/Axum web UI.
 [[bin]]
-name = "itsulu-repo-sanitizer"
+name = "Rustrepo-sanitizer"
 path = "src/main.rs"
-
-[[bin]]
-name = "rustrepo-sanitizer-gui"
-path = "src/bin/gui.rs"
 
 [dependencies]
 anyhow = "1.0"
@@ -35,13 +27,51 @@ tar = "0.4"
 zstd = "0.13"
 compcol = { version = "0.6.11", default-features = false, features = ["std", "factory", "gzip", "zlib", "xz", "lz4", "snappy", "bzip2", "brotli", "zstd"] }
 zip = { version = "2.4", default-features = false, features = ["aes-crypto", "deflate", "zstd"] }
+
+# Desktop GUI (Slint)
 slint = { version = "1.17.1", optional = true }
 rfd = { version = "0.15", optional = true }
 webbrowser = { version = "1.0", optional = true }
+# Load fontconfig at runtime (dlopen) so the GUI still cross-compiles for
+# targets without a fontconfig sysroot.
+fontique = { version = "0.10", features = ["fontconfig-dlopen"], optional = true }
+
+# Web UI (Leptos SSR on Axum)
+axum = { version = "0.8", features = ["multipart", "macros"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "time", "sync", "io-util", "signal"], optional = true }
+tokio-util = { version = "0.7", features = ["io"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"], optional = true }
+tempfile = { version = "3.14", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+thiserror = { version = "2", optional = true }
+futures-util = { version = "0.3", optional = true }
+bytes = { version = "1", optional = true }
+hex = { version = "0.4", optional = true }
+url = { version = "2", optional = true }
+any_spawner = { version = "0.3", optional = true }
+leptos = { version = "0.8", features = ["ssr"], optional = true }
+leptos_axum = { version = "0.8", optional = true }
 
 [features]
-default = []
-gui = ["dep:slint", "dep:rfd", "dep:webbrowser"]
+# The unified binary supports all three interfaces by default.
+default = ["gui", "web"]
+gui = ["dep:slint", "dep:rfd", "dep:webbrowser", "dep:fontique"]
+web = [
+    "dep:axum",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:reqwest",
+    "dep:tempfile",
+    "dep:uuid",
+    "dep:thiserror",
+    "dep:futures-util",
+    "dep:bytes",
+    "dep:hex",
+    "dep:url",
+    "dep:any_spawner",
+    "dep:leptos",
+    "dep:leptos_axum",
+]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -49,6 +79,9 @@ tempfile = "3.14"
 insta = "1.48"
 xa11y = "0.14"
 enigo = "0.6"
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [build-dependencies]
 slint-build = "1.17.1"
@@ -60,10 +93,10 @@ extended-description = "Create deterministic, sanitized AI review bundles from G
 depends = ""
 section = "utils"
 priority = "optional"
-assets = [["target/release/itsulu-repo-sanitizer", "usr/bin/itsulu-repo-sanitizer", "755"]]
+assets = [["target/release/Rustrepo-sanitizer", "usr/bin/Rustrepo-sanitizer", "755"]]
 
 [package.metadata.generate-rpm]
-assets = [{ source = "target/release/itsulu-repo-sanitizer", dest = "/usr/bin/itsulu-repo-sanitizer", mode = "755" }]
+assets = [{ source = "target/release/Rustrepo-sanitizer", dest = "/usr/bin/Rustrepo-sanitizer", mode = "755" }]
 
 [[bench]]
 name = "sanitize"

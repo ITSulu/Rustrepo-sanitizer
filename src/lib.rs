@@ -1,7 +1,14 @@
-//! Shared sanitizer core consumed by both the CLI and GUI frontends.
+//! Shared sanitizer core plus the launch frontends used by the unified
+//! `Rustrepo-sanitizer` binary: the CLI, the Slint desktop GUI, and the
+//! Leptos/Axum web UI all consume this one core.
 pub mod help;
 pub mod sanitizer;
 pub mod security;
+
+#[cfg(feature = "gui")]
+pub mod gui;
+#[cfg(feature = "web")]
+pub mod web;
 
 /// User-facing capabilities. Keep this registry authoritative for both interfaces.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -221,7 +228,7 @@ mod tests {
     #[test]
     fn gui_title_uses_authoritative_package_version() {
         let ui = include_str!("../ui/main.slint");
-        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        let gui = std::fs::read_to_string("src/gui.rs").expect("GUI source is available");
         assert!(!ui.contains("Rustrepo Sanitizer 0.4.0"));
         assert!(gui.contains("env!(\"CARGO_PKG_VERSION\")"));
         assert!(gui.contains("set_app_title"));
@@ -279,25 +286,25 @@ mod tests {
     }
 
     #[test]
-    fn current_release_metadata_targets_0_6_0() {
+    fn current_release_metadata_targets_0_6_1() {
         let manifest = include_str!("../Cargo.toml");
-        assert!(manifest.contains("version = \"0.6.0\""));
+        assert!(manifest.contains("version = \"0.6.1\""));
     }
 
     #[test]
-    fn release_workflow_publishes_the_web_artifact() {
+    fn release_workflow_has_no_separate_web_artifact() {
         let workflow = include_str!("../.forgejo/workflows/release-build.yml");
-        assert!(workflow.contains("rustrepo-sanitizer-web-${version}-linux-glibc-x86_64.tar.gz"));
+        assert!(!workflow.contains("rustrepo-sanitizer-web"));
         let docs = include_str!("../docs/release-process.md");
-        assert!(docs.contains("rustrepo-sanitizer-web-<version>-linux-glibc-x86_64.tar.gz"));
+        assert!(!docs.contains("rustrepo-sanitizer-web"));
     }
 
     #[test]
-    fn forgejo_ci_runs_workspace_quality_gates() {
+    fn forgejo_ci_builds_the_unified_binary() {
         let workflow = include_str!("../.forgejo/workflows/ci.yml");
-        assert!(workflow.contains("cargo test --workspace --all-features"));
-        assert!(workflow.contains("cargo clippy --workspace --all-targets --all-features"));
-        assert!(workflow.contains("cargo build -p itsulu-repo-sanitizer-web"));
+        assert!(workflow.contains("cargo test --all-features"));
+        assert!(workflow.contains("cargo clippy --all-targets --all-features"));
+        assert!(workflow.contains("cargo build --bin Rustrepo-sanitizer"));
     }
 
     #[test]
@@ -311,7 +318,7 @@ mod tests {
     #[test]
     fn gui_refreshes_output_extension_when_capability_changes() {
         let ui = include_str!("../ui/main.slint");
-        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        let gui = std::fs::read_to_string("src/gui.rs").expect("GUI source is available");
         assert!(ui.contains("compression-changed"));
         assert!(ui.contains("timestamp-changed"));
         assert!(gui.contains("set_extension"));
@@ -320,7 +327,7 @@ mod tests {
 
     #[test]
     fn gui_does_not_silently_replace_invalid_compression_selection() {
-        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        let gui = std::fs::read_to_string("src/gui.rs").expect("GUI source is available");
         assert!(!gui.contains("compression_for_gui_selection(format, compression_index as usize)\n                .unwrap_or(Compression::Zstd)"));
     }
 
@@ -332,7 +339,7 @@ mod tests {
 
     #[test]
     fn seven_zip_gui_uses_truthful_owned_compression_label() {
-        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        let gui = std::fs::read_to_string("src/gui.rs").expect("GUI source is available");
         assert!(gui.contains("ArchiveFormat::SevenZip"));
         assert!(gui.contains("\"7z\""));
     }
@@ -343,10 +350,10 @@ mod tests {
             .expect("desktop entry is available");
         let flatpak = std::fs::read_to_string("packaging/io.itsulu.RustrepoSanitizer.yml")
             .expect("Flatpak manifest is available");
-        assert!(desktop.contains("Exec=rustrepo-sanitizer-gui"));
+        assert!(desktop.contains("Exec=Rustrepo-sanitizer --gui"));
         assert!(desktop.contains("Icon=io.itsulu.RustrepoSanitizer"));
-        assert!(desktop.contains("StartupWMClass=rustrepo-sanitizer-gui"));
-        assert!(flatpak.contains("command: rustrepo-sanitizer-gui"));
+        assert!(desktop.contains("StartupWMClass=Rustrepo-sanitizer"));
+        assert!(flatpak.contains("command: Rustrepo-sanitizer"));
         assert!(flatpak.contains("/app/share/applications/io.itsulu.RustrepoSanitizer.desktop"));
     }
 
@@ -354,9 +361,8 @@ mod tests {
     fn flatpak_builds_binaries_before_installing_them() {
         let flatpak = std::fs::read_to_string("packaging/io.itsulu.RustrepoSanitizer.yml")
             .expect("Flatpak manifest is available");
-        assert!(flatpak.contains("cargo build --release --locked --bin itsulu-repo-sanitizer"));
         assert!(flatpak.contains(
-            "cargo build --release --locked --features gui --bin rustrepo-sanitizer-gui"
+            "cargo build --release --locked --features gui,web --bin Rustrepo-sanitizer"
         ));
     }
 
@@ -394,7 +400,7 @@ mod tests {
         let harness =
             std::fs::read_to_string("scripts/gui-test").expect("GUI harness must be readable");
         assert!(
-            harness.contains("cat /tmp/rustrepo-sanitizer-gui.log"),
+            harness.contains("cat /tmp/rustrepo-sanitizer.log"),
             "GUI harness must print the startup log when no native window is discoverable"
         );
     }
@@ -421,7 +427,7 @@ mod tests {
 
     #[test]
     fn native_gui_harness_can_override_repository_without_editing_ui_source() {
-        let gui = std::fs::read_to_string("src/bin/gui.rs").expect("GUI source is available");
+        let gui = std::fs::read_to_string("src/gui.rs").expect("GUI source is available");
         assert!(gui.contains("RRS_GUI_REPOSITORY"));
     }
 
