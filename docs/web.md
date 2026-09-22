@@ -1,19 +1,40 @@
 # Web UI
 
-The `rustrepo-sanitizer-web` crate serves an Axum HTTP/API server and a Leptos
-server-rendered (SSR) web UI. Both frontends call the same sanitizer core as
-the CLI and the Slint desktop GUI, so sanitization logic is never duplicated.
+The unified `Rustrepo-sanitizer` executable serves an Axum HTTP/API server and a
+Leptos server-rendered (SSR) web UI when started with `--web`. All interfaces
+(CLI, Slint desktop GUI, web) call the same sanitizer core, so sanitization
+logic is never duplicated.
 
 ## Run
 
 ```bash
-cargo run -p itsulu-repo-sanitizer-web
-# or, from a release build:
-rustrepo-sanitizer-web
+# web UI only
+cargo run -- --web
+# GUI and web together, in one process:
+cargo run -- --gui --web
+# from a release build:
+Rustrepo-sanitizer --web
+Rustrepo-sanitizer --gui --web
 ```
 
 The server binds to `127.0.0.1:8787` by default. Open
 <http://127.0.0.1:8787/> for the UI.
+
+### Launch options
+
+| Option | Purpose |
+|---|---|
+| `--web` | Start the web UI and HTTP API. |
+| `--gui` | Start the desktop GUI. |
+| `--gui --web` | Run both in one process. |
+| `--web-bind <ADDR>` | Bind address (equivalent to `RUSTREPO_WEB_BIND`). |
+| `--web-token <TOKEN>` | Require a bearer token for the API and UI login. |
+| `--web-root <DIR>` | Workspace/upload root. |
+| `--web-local-roots <PATHS>` | Allowed local-path roots. |
+| `--web-forgejo-base <URL>` / `--web-forgejo-token <TOKEN>` | Forgejo selector. |
+| `--web-github-api <URL>` / `--web-github-token <TOKEN>` | GitHub selector. |
+
+Web options are only accepted together with `--web`.
 
 ### Environment
 
@@ -33,11 +54,14 @@ serialized into a response and never reach the browser.
 
 ## Architecture
 
+All modules live under `src/web/`.
+
 - `security` — URL/SSRF validation, path traversal checks, and safe archive
   extraction.
 - `acquire` — resolves each of the five input modes into an isolated checkout.
 - `workspace` — bounded, expiring job workspaces with deterministic cleanup.
 - `uploads` — opaque-id upload store with streaming size enforcement.
+- `server` — web server lifecycle (web-only, or a background thread for GUI+Web).
 - `integrations` — Forgejo/GitHub clients; tokens stay in `IntegrationsConfig`.
 - `dto` — request/response types and the mapping onto the shared core `Config`.
 - `jobs` — in-memory job registry and the sanitization runner.

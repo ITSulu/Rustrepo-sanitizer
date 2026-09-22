@@ -2,8 +2,8 @@
 Type=Application
 Name=Rustrepo Sanitizer
 Comment=Create deterministic sanitized repository review bundles
-Exec=rustrepo-sanitizer-gui
+Exec=Rustrepo-sanitizer --gui
 Icon=io.itsulu.RustrepoSanitizer
 Terminal=false
 Categories=Development;Utility;
-StartupWMClass=rustrepo-sanitizer-gui
+StartupWMClass=Rustrepo-sanitizer

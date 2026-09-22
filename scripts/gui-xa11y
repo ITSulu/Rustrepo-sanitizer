@@ -2,9 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-cargo build --features gui --bin rustrepo-sanitizer-gui
+cargo build --no-default-features --features gui --bin Rustrepo-sanitizer
 cargo test --test gui_xa11y --no-run
-target/debug/rustrepo-sanitizer-gui >/tmp/rustrepo-sanitizer-gui.log 2>&1 &
+target/debug/Rustrepo-sanitizer --gui >/tmp/rustrepo-sanitizer.log 2>&1 &
 gui_pid=$!
 trap 'kill "$gui_pid" 2>/dev/null || true; wait "$gui_pid" 2>/dev/null || true' EXIT
 sleep 2

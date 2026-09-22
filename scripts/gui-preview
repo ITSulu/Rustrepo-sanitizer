@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-SLINT_LIVE_PREVIEW=1 cargo run --features gui,slint/live-preview --bin rustrepo-sanitizer-gui
+SLINT_LIVE_PREVIEW=1 cargo run --no-default-features --features gui,slint/live-preview --bin Rustrepo-sanitizer -- --gui

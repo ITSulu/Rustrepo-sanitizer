@@ -24,18 +24,22 @@ Cargo installation remain supported. Verify every download with `SHA256SUMS`.
 
 For packages, install with the platform's normal package tool (`dpkg -i`,
 `rpm -i`, or `pacman -U`). For an archive, extract it and place the
-`itsulu-repo-sanitizer` executable on `PATH`. Windows users can extract the
-`.zip` and run the included `.exe`; macOS users can extract the archive and
-move the arm64 or x86_64 executable to a directory on `PATH`.
+`Rustrepo-sanitizer` executable on `PATH`. Windows users can extract the
+`.zip` and run the included `Rustrepo-sanitizer.exe`; macOS users can extract
+the archive and move the arm64 or x86_64 executable to a directory on `PATH`.
 
-Package managers install the `itsulu-repo-sanitizer` executable. Windows
-archives target Windows 11. Nix and Flatpak definitions are included in the
-repository for reproducible Linux installation.
+Package managers install the single `Rustrepo-sanitizer` executable, which
+provides the CLI, the desktop GUI, and the web UI. Windows archives target
+Windows 11. Nix and Flatpak definitions are included in the repository for
+reproducible Linux installation.
 
 ```bash
 cargo install --path .
-itsulu-repo-sanitizer sanitize .
-itsulu-repo-sanitizer sanitize /path/to/repository --output /tmp/review.tar.zst
+Rustrepo-sanitizer sanitize .
+Rustrepo-sanitizer sanitize /path/to/repository --output /tmp/review.tar.zst
+Rustrepo-sanitizer --gui          # desktop GUI
+Rustrepo-sanitizer --web          # web UI at http://127.0.0.1:8787
+Rustrepo-sanitizer --gui --web    # both, in one process
 ```
 
 The archive contains sanitized source files plus `SANITIZATION-REPORT.md`,
@@ -44,10 +48,10 @@ Reports contain counts, paths, reasons, and checksums—not secret values.
 
 ## Web UI
 
-A self-hosted Axum + Leptos web frontend is included:
+A self-hosted Axum + Leptos web frontend is built into the same executable:
 
 ```bash
-cargo run -p itsulu-repo-sanitizer-web     # http://127.0.0.1:8787
+Rustrepo-sanitizer --web     # http://127.0.0.1:8787
 ```
 
 It exposes the same options as the CLI and desktop GUI and adds five repository
@@ -60,7 +64,7 @@ stay on the server and never reach the browser. See [docs/web.md](docs/web.md).
 ## Usage
 
 ```text
-itsulu-repo-sanitizer sanitize [REPOSITORY] [OPTIONS]
+Rustrepo-sanitizer sanitize [REPOSITORY] [OPTIONS]
 
   --output PATH                 Archive destination
   --archive tar                 Archive/container format
@@ -89,10 +93,10 @@ itsulu-repo-sanitizer sanitize [REPOSITORY] [OPTIONS]
 Examples:
 
 ```bash
-itsulu-repo-sanitizer sanitize . --dry-run --verbose
-itsulu-repo-sanitizer sanitize . --include-untracked --output /tmp/review.tar.gz
-itsulu-repo-sanitizer sanitize . --fail-on-secret --quiet
-itsulu-repo-sanitizer list-formats
+Rustrepo-sanitizer sanitize . --dry-run --verbose
+Rustrepo-sanitizer sanitize . --include-untracked --output /tmp/review.tar.gz
+Rustrepo-sanitizer sanitize . --fail-on-secret --quiet
+Rustrepo-sanitizer list-formats
 ```
 
 When `--output` is omitted, the archive is named inside the repository root as

@@ -46,19 +46,19 @@ jobs:
           test "$(git describe --tags --exact-match HEAD)" = "v${version}"
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "$version"
           apt-get update
-          apt-get install -y --no-install-recommends python3-pip
+          apt-get install -y --no-install-recommends python3-pip libxkbcommon-dev
           python3 -m pip install --break-system-packages ziglang
           command -v cargo-zigbuild >/dev/null || cargo install cargo-zigbuild --locked
-          cargo zigbuild --locked --release --target '${{ matrix.target }}'
+          cargo zigbuild --locked --release --features gui,web --bin Rustrepo-sanitizer --target '${{ matrix.target }}'
           mkdir -p dist
           if [ '${{ matrix.arch }}' = aarch64 ]; then
             mkdir -p cross-stage
-            cp target/${{ matrix.target }}/release/itsulu-repo-sanitizer cross-stage/itsulu-repo-sanitizer
-            chmod 0755 cross-stage/itsulu-repo-sanitizer
-            tar -C cross-stage -czf "dist/rustrepo-sanitizer-${version}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" itsulu-repo-sanitizer
+            cp target/${{ matrix.target }}/release/Rustrepo-sanitizer cross-stage/Rustrepo-sanitizer
+            chmod 0755 cross-stage/Rustrepo-sanitizer
+            tar -C cross-stage -czf "dist/rustrepo-sanitizer-${version}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" Rustrepo-sanitizer
             (cd dist && sha256sum $(find . -maxdepth 1 -type f -printf '%f\n' | sort) > SHA256SUMS)
           else
-            RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh "$version" dist target/${{ matrix.target }}/release/itsulu-repo-sanitizer
+            RELEASE_PLATFORM='${{ matrix.platform }}' RELEASE_ARCH='${{ matrix.arch }}' release/build-artifacts.sh "$version" dist target/${{ matrix.target }}/release/Rustrepo-sanitizer
           fi
           (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v3
@@ -94,17 +94,18 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           test "$(git describe --tags --exact-match HEAD)" = "v${version}"
           test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "$version"
-          cargo build --locked --release
+          apt-get update
+          apt-get install -y --no-install-recommends libxkbcommon-dev
+          cargo build --locked --release --features gui,web --bin Rustrepo-sanitizer
           mkdir -p dist
           if [ '${{ matrix.format }}' = arch ]; then
-            apt-get update
             apt-get install -y --no-install-recommends zstd
             pkgroot="$PWD/arch-root"
             rm -rf "$pkgroot"
             mkdir -p "$pkgroot/usr/bin"
-            cp target/release/itsulu-repo-sanitizer "$pkgroot/usr/bin/itsulu-repo-sanitizer"
-            chmod 0755 "$pkgroot/usr/bin/itsulu-repo-sanitizer"
-            size=$(stat -c '%s' "$pkgroot/usr/bin/itsulu-repo-sanitizer")
+            cp target/release/Rustrepo-sanitizer "$pkgroot/usr/bin/Rustrepo-sanitizer"
+            chmod 0755 "$pkgroot/usr/bin/Rustrepo-sanitizer"
+            size=$(stat -c '%s' "$pkgroot/usr/bin/Rustrepo-sanitizer")
             printf '%s\n' \
               'pkgname = rustrepo-sanitizer' \
               'pkgbase = rustrepo-sanitizer' \
@@ -155,51 +156,17 @@ jobs:
           apt-get install -y --no-install-recommends python3-pip zip
           python3 -m pip install --break-system-packages ziglang
           command -v cargo-zigbuild >/dev/null || cargo install cargo-zigbuild --locked
-          cargo zigbuild --locked --release --target x86_64-pc-windows-gnu
+          cargo zigbuild --locked --release --features gui,web --bin Rustrepo-sanitizer --target x86_64-pc-windows-gnu
           mkdir -p dist
-          zip -j "dist/rustrepo-sanitizer-${version}-windows-x86_64.zip" target/x86_64-pc-windows-gnu/release/itsulu-repo-sanitizer.exe
+          zip -j "dist/rustrepo-sanitizer-${version}-windows-x86_64.zip" target/x86_64-pc-windows-gnu/release/Rustrepo-sanitizer.exe
           (cd dist && sha256sum *.zip > SHA256SUMS)
       - uses: actions/upload-artifact@v3
         with:
           name: windows-x86_64
           path: dist/
 
-  web:
-    runs-on: garuda-16
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          ref: 'v${{ inputs.version }}'
-      - name: Install Rust
-        run: |
-          set -eu
-          retry() { local i; for i in 1 2 3 4 5; do "$@" && return 0; sleep 15; done; return 1; }
-          retry curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
-          retry sh /tmp/rustup-init.sh -y --profile minimal
-          source "$HOME/.cargo/env"
-          retry rustup toolchain install stable --profile minimal --no-self-update
-      - run: |
-          set -eu
-          version='${{ inputs.version }}'
-          export PATH="$HOME/.cargo/bin:$PATH"
-          test "$(git describe --tags --exact-match HEAD)" = "v${version}"
-          test "$(awk -F'\"' '/^version = / {print $2; exit}' Cargo.toml)" = "$version"
-          cargo build --locked --release -p itsulu-repo-sanitizer-web
-          mkdir -p dist
-          stage=$(mktemp -d)
-          cp target/release/rustrepo-sanitizer-web "$stage/rustrepo-sanitizer-web"
-          chmod 0755 "$stage/rustrepo-sanitizer-web"
-          tar -C "$stage" -czf "dist/rustrepo-sanitizer-web-${version}-linux-glibc-x86_64.tar.gz" rustrepo-sanitizer-web
-          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
-          (cd dist && sha256sum -c SHA256SUMS)
-      - uses: actions/upload-artifact@v3
-        with:
-          name: web-x86_64
-          path: dist/
-
   publish:
-    needs: [build, packages, windows, web]
+    needs: [build, packages, windows]
     runs-on: garuda-16
     steps:
       - uses: actions/checkout@v4
@@ -213,7 +180,7 @@ jobs:
       - run: |
           set -eu
           version='${{ inputs.version }}'
-          expected="rustrepo-sanitizer-${version}-linux-glibc-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-glibc-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-musl-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-musl-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-amd64.deb rustrepo-sanitizer-${version}-linux-x86_64.rpm rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst rustrepo-sanitizer-${version}-alpine-x86_64.tar.gz rustrepo-sanitizer-${version}-alpine-aarch64.tar.gz rustrepo-sanitizer-${version}-windows-x86_64.zip rustrepo-sanitizer-web-${version}-linux-glibc-x86_64.tar.gz"
+          expected="rustrepo-sanitizer-${version}-linux-glibc-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-glibc-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-musl-x86_64.tar.gz rustrepo-sanitizer-${version}-linux-musl-aarch64.tar.gz rustrepo-sanitizer-${version}-linux-amd64.deb rustrepo-sanitizer-${version}-linux-x86_64.rpm rustrepo-sanitizer-${version}-arch-x86_64.pkg.tar.zst rustrepo-sanitizer-${version}-alpine-x86_64.tar.gz rustrepo-sanitizer-${version}-alpine-aarch64.tar.gz rustrepo-sanitizer-${version}-windows-x86_64.zip"
           git fetch --no-tags origin "refs/tags/v${version}:refs/tags/v${version}"
           rm -rf dist; mkdir -p dist
           for name in $expected; do

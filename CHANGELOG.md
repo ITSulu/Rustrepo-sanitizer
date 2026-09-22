@@ -3,6 +3,15 @@
 This project follows the `MAJOR.MINOR.PATCH` policy documented in
 `CONTRIBUTING.md`. Every release is published from a merged pull request.
 
+## 0.6.1 (2026-09-22)
+
+- Unified the CLI, desktop GUI, and web UI into a single `Rustrepo-sanitizer`
+  executable. `--gui`, `--web`, and `--gui --web` select the graphical
+  interfaces; GUI + Web runs in one process.
+- Removed the separate `rustrepo-sanitizer-web` executable and release artifact.
+- Replaced the dual-binary packaging and naming (binaries, packages, desktop
+  entry, Flatpak, docs) with the unified `Rustrepo-sanitizer`.
+
 ## 0.6.0 (2026-09-21)
 
 - Added an Axum HTTP/API server and a Leptos server-rendered web UI at feature

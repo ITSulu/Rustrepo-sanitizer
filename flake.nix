@@ -9,9 +9,10 @@
       let pkgs = import nixpkgs { inherit system; };
       in { packages.default = pkgs.rustPlatform.buildRustPackage {
         pname = "rustrepo-sanitizer";
-        version = "0.3.2";
+        version = "0.6.1";
         src = ./.;
         cargoLock.lockFile = ./Cargo.lock;
+        cargoBuildFlags = [ "--features" "gui,web" "--bin" "Rustrepo-sanitizer" ];
         meta = { description = "Create deterministic, sanitized AI review bundles from Git repositories";
           homepage = "https://git.itsulu.com/itsulu/Rustrepo-sanitizer";
           license = pkgs.lib.licenses.asl20; };
