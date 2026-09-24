@@ -82,15 +82,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 /// secret is needed: possession of the cookie is equivalent to the token.
 fn session_value(token: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"Rustrepo-sanitizer-web-session:");
+    hasher.update(b"Rustrepo-sanitizer-session:");
     hasher.update(token.as_bytes());
     hex::encode(hasher.finalize())
 }
 
-fn session_cookie(token: &str) -> String {
+fn session_cookie(token: &str, secure: bool) -> String {
     format!(
-        "rrs_session={}; HttpOnly; SameSite=Strict; Path=/",
-        session_value(token)
+        "rrs_session={}; HttpOnly; SameSite=Strict; Path=/{}",
+        session_value(token),
+        if secure { "; Secure" } else { "" }
     )
 }
 
@@ -151,7 +152,10 @@ async fn ui_login(State(state): State<Arc<AppState>>, mut multipart: Multipart) 
         Response::builder()
             .status(StatusCode::SEE_OTHER)
             .header(header::LOCATION, "/")
-            .header(header::SET_COOKIE, session_cookie(token))
+            .header(
+                header::SET_COOKIE,
+                session_cookie(token, state.secure_cookies),
+            )
             .body(Body::empty())
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
     } else {

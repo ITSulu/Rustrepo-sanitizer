@@ -35,6 +35,8 @@ jobs:
       - run: apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev
       - run: cargo check --all-features
       - run: cargo check --no-default-features
+      - run: cargo check --no-default-features --features gui
+      - run: cargo check --no-default-features --features web
 
   gui-xa11y:
     runs-on: garuda-16

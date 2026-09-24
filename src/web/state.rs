@@ -75,6 +75,9 @@ pub struct AppState {
     pub token: Option<String>,
     pub allowed_local_roots: Vec<PathBuf>,
     pub limits: Limits,
+    /// Mark the UI session cookie `Secure` when the server is reachable beyond
+    /// loopback (i.e. likely over TLS via a reverse proxy).
+    pub secure_cookies: bool,
     pub runner: Arc<dyn CloneRunner>,
     pub resolver: Arc<dyn HostResolver>,
 }
@@ -99,6 +102,7 @@ impl AppState {
             token,
             allowed_local_roots,
             limits,
+            secure_cookies: false,
             runner,
             resolver,
         }
@@ -121,7 +125,7 @@ impl AppState {
                 .unwrap_or_else(|| Url::parse("https://api.github.com").expect("valid default")),
             github_token: settings.github_token.clone(),
         }));
-        Ok(Self::new(
+        let mut state = Self::new(
             workspaces,
             uploads,
             integrations,
@@ -132,7 +136,9 @@ impl AppState {
                 timeout: std::time::Duration::from_secs(300),
             }),
             Arc::new(SystemResolver),
-        ))
+        );
+        state.secure_cookies = !settings.bind.ip().is_loopback();
+        Ok(state)
     }
 }
 

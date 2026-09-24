@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_Rustrepo-sanitizer");
@@ -16,6 +16,84 @@ fn run(args: &[&str]) -> (i32, String, String) {
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
+}
+
+/// Kills the child on drop so a failing assertion cannot leak a server process.
+struct Guard(Child);
+
+impl Guard {
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        self.0.try_wait()
+    }
+    fn pid(&self) -> u32 {
+        self.0.id()
+    }
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+fn health_ok(port: u16) -> bool {
+    if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
+        let _ = stream
+            .write_all(b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        let mut buffer = String::new();
+        let _ = stream.read_to_string(&mut buffer);
+        return buffer.contains("200") && buffer.contains("\"version\"");
+    }
+    false
+}
+
+fn wait_healthy(port: u16, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if health_ok(port) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+/// Spawns `--web` on a free port, retrying if the port was taken in the race
+/// between `free_port()` and the child binding it.
+fn spawn_web_with_retry(root: &Path) -> Option<(Guard, u16, std::path::PathBuf)> {
+    for attempt in 0..5 {
+        let port = free_port();
+        let log = root.join(format!("web-{attempt}.log"));
+        let stderr = std::fs::File::create(&log).unwrap();
+        let child = Command::new(BIN)
+            .args([
+                "--web",
+                "--web-bind",
+                &format!("127.0.0.1:{port}"),
+                "--web-root",
+                root.to_str().unwrap(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(stderr)
+            .spawn()
+            .expect("spawn unified web mode");
+        let guard = Guard(child);
+        if wait_healthy(port, Duration::from_secs(25)) {
+            return Some((guard, port, log));
+        }
+        // Port may have been taken; drop (kills) and retry.
+        drop(guard);
+    }
+    None
 }
 
 #[test]
@@ -69,6 +147,10 @@ fn help_aliases_document_the_launch_modes() {
         assert!(stdout.contains("--web"));
         assert!(stdout.contains("Web server"));
     }
+    // Launch flags are documented even alongside a subcommand listing.
+    let (code, stdout, _) = run(&["--gui", "--web", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--gui") && stdout.contains("--web"));
     // The sanitize subcommand help still works and keeps its groups.
     let (code, stdout, _) = run(&["sanitize", "--help"]);
     assert_eq!(code, 0);
@@ -83,6 +165,38 @@ fn web_options_require_the_web_flag() {
         stderr.contains("--web"),
         "error should mention --web: {stderr}"
     );
+}
+
+#[test]
+fn launch_flags_cannot_be_combined_with_a_subcommand() {
+    for args in [["--gui", "sanitize"], ["--web", "sanitize"]] {
+        let (code, _, stderr) = run(&args);
+        assert_eq!(code, 2, "{args:?} must be rejected");
+        assert!(stderr.contains("subcommand"), "{stderr}");
+    }
+}
+
+#[test]
+fn unavailable_modes_are_reported_when_the_feature_is_off() {
+    if !cfg!(feature = "gui") {
+        let (code, _, stderr) = run(&["--gui"]);
+        assert_eq!(code, 2);
+        assert!(stderr.contains("no GUI support"), "{stderr}");
+    }
+    if !cfg!(feature = "web") {
+        let (code, _, stderr) = run(&["--web"]);
+        assert_eq!(code, 2);
+        assert!(stderr.contains("no web support"), "{stderr}");
+    }
+}
+
+#[test]
+fn launcher_composes_gui_and_web_in_one_process() {
+    // Static guard: the GUI+Web path exists and never spawns a second binary.
+    let main = std::fs::read_to_string(Path::new(ROOT).join("src/main.rs")).unwrap();
+    assert!(main.contains("run_gui_and_web"));
+    assert!(main.contains("spawn_web"));
+    assert!(!main.contains("Command::new"));
 }
 
 #[test]
@@ -115,46 +229,32 @@ fn cli_sanitize_still_works() {
 
 #[test]
 fn web_mode_serves_health_and_shuts_down_cleanly() {
-    let port = {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.local_addr().unwrap().port()
-    };
     let root = tempfile::tempdir().unwrap();
-    let mut child = Command::new(BIN)
-        .args([
-            "--web",
-            "--web-bind",
-            &format!("127.0.0.1:{port}"),
-            "--web-root",
-            root.path().to_str().unwrap(),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn unified web mode");
-
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut healthy = false;
-    while Instant::now() < deadline {
-        if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
-            let _ = stream.write_all(
-                b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-            );
-            let mut buffer = String::new();
-            let _ = stream.read_to_string(&mut buffer);
-            if buffer.contains("200") && buffer.contains("\"version\"") {
-                healthy = true;
-                break;
-            }
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    assert!(healthy, "unified --web mode did not serve /api/health");
+    let (mut guard, port, log) = spawn_web_with_retry(root.path())
+        .unwrap_or_else(|| panic!("web mode never became healthy"));
+    let _ = port;
 
     // SIGTERM must trigger a graceful shutdown with a success exit.
     unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
+        libc::kill(guard.pid() as i32, libc::SIGTERM);
     }
-    let status = child.wait().expect("child exits");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut status = None;
+    while Instant::now() < deadline {
+        match guard.try_wait() {
+            Ok(Some(s)) => {
+                status = Some(s);
+                break;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(err) => panic!("waiting for the server failed: {err}"),
+        }
+    }
+    let status = status.unwrap_or_else(|| {
+        panic!(
+            "web mode did not exit within the timeout; log:\n{}",
+            std::fs::read_to_string(&log).unwrap_or_default()
+        )
+    });
     assert!(status.success(), "web mode did not exit cleanly: {status}");
 }

@@ -8,12 +8,21 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::web::routes::build_router;
 use crate::web::state::{AppState, WebSettings};
 
-/// Start-of-run cleanup and the periodic sweeper. Idempotent.
+/// Called when an interactive termination signal arrives while the server runs
+/// alongside the GUI, so the GUI can also wind down.
+pub type SignalCallback = Box<dyn Fn() + Send + Sync + 'static>;
+
+/// Start-of-run cleanup and the periodic job/upload sweeper. Idempotent.
+///
+/// Workspaces are intentionally not swept on a timer: a running job owns its
+/// workspace, and a finished job's workspace is removed when the job expires
+/// (the `TempDir` is dropped) or on the next startup. This avoids deleting a
+/// workspace under a job that is still running or awaiting download.
 fn start_cleanup(state: &Arc<AppState>) {
     let _ = state.workspaces.cleanup_stale();
     state.uploads.cleanup_expired(Duration::from_secs(60 * 60));
@@ -21,7 +30,6 @@ fn start_cleanup(state: &Arc<AppState>) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(300)).await;
-            let _ = cleanup_state.workspaces.cleanup_stale();
             cleanup_state
                 .jobs
                 .cleanup_expired(Duration::from_secs(60 * 60));
@@ -32,16 +40,26 @@ fn start_cleanup(state: &Arc<AppState>) {
     });
 }
 
-/// Serves the web UI/API until `shutdown` resolves.
-pub async fn serve(
+/// Binds the listener synchronously so bind failures surface to the caller
+/// before the server thread is started.
+fn bind_listener(bind: SocketAddr) -> Result<std::net::TcpListener> {
+    let listener = std::net::TcpListener::bind(bind)
+        .with_context(|| format!("binding the web server to {bind}"))?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
+}
+
+/// Serves the web UI/API on an already-bound listener until `shutdown` resolves.
+async fn serve_listener(
     state: Arc<AppState>,
+    listener: std::net::TcpListener,
     bind: SocketAddr,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<()> {
     crate::web::init_executor();
     start_cleanup(&state);
     let app = build_router(state);
-    let listener = tokio::net::TcpListener::bind(bind).await?;
+    let listener = tokio::net::TcpListener::from_std(listener)?;
     eprintln!("Rustrepo-sanitizer web UI listening on http://{bind}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)
@@ -68,42 +86,54 @@ async fn termination_signal() {
 
 /// Runs the web UI only, blocking the current thread until Ctrl-C or SIGTERM.
 pub fn run_web_only(settings: WebSettings) -> Result<()> {
+    let listener = bind_listener(settings.bind)?;
     let state = Arc::new(AppState::from_settings(&settings)?);
     let bind = settings.bind;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     runtime.block_on(async move {
-        let shutdown = async {
+        serve_listener(state, listener, bind, async {
             termination_signal().await;
-        };
-        serve(state, bind, shutdown).await
+        })
+        .await
     })
 }
 
 /// Starts the web UI on a background thread and returns a shutdown trigger.
 ///
-/// Used by GUI + Web mode so neither interface blocks the other.
+/// The listener is bound before this returns, so a bind failure is reported to
+/// the caller. `on_signal` (GUI + Web) is invoked if the process receives
+/// Ctrl-C/SIGTERM so the GUI can be stopped as well.
 pub fn spawn_web(
     settings: WebSettings,
+    on_signal: Option<SignalCallback>,
 ) -> Result<(
     std::thread::JoinHandle<Result<()>>,
     tokio::sync::oneshot::Sender<()>,
 )> {
+    let listener = bind_listener(settings.bind)?;
     let state = Arc::new(AppState::from_settings(&settings)?);
     let bind = settings.bind;
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let handle = std::thread::Builder::new()
-        .name("Rustrepo-sanitizer-web".to_owned())
+        .name("Rustrepo-sanitizer".to_owned())
         .spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
             runtime.block_on(async move {
-                serve(state, bind, async move {
-                    let _ = rx.await;
-                })
-                .await
+                let shutdown = async move {
+                    tokio::select! {
+                        _ = rx => {},
+                        _ = termination_signal() => {
+                            if let Some(callback) = on_signal {
+                                callback();
+                            }
+                        }
+                    }
+                };
+                serve_listener(state, listener, bind, shutdown).await
             })
         })?;
     Ok((handle, tx))
@@ -151,11 +181,25 @@ mod tests {
             root: root.path().to_path_buf(),
             ..WebSettings::default()
         };
-        let (handle, shutdown) = spawn_web(settings).unwrap();
+        let (handle, shutdown) = spawn_web(settings, None).unwrap();
         wait_health(port);
         // The main thread is not blocked while the server runs.
         assert!(!handle.is_finished());
         let _ = shutdown.send(());
         assert!(handle.join().unwrap().is_ok());
+    }
+
+    /// A bind failure is reported synchronously rather than hiding until exit.
+    #[test]
+    fn spawn_web_reports_bind_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = occupied.local_addr().unwrap().port();
+        let settings = WebSettings {
+            bind: format!("127.0.0.1:{port}").parse().unwrap(),
+            root: root.path().to_path_buf(),
+            ..WebSettings::default()
+        };
+        assert!(spawn_web(settings, None).is_err());
     }
 }

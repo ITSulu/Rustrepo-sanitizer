@@ -261,6 +261,16 @@ fn web_settings(cli: &Cli) -> itsulu_repo_sanitizer::web::state::WebSettings {
 }
 
 fn launch(cli: &Cli) -> ExitCode {
+    // Reject a requested mode that this build cannot provide, rather than
+    // silently starting only the available one.
+    if cli.gui && !cfg!(feature = "gui") {
+        eprintln!("{BIN}: this build has no GUI support enabled");
+        return ExitCode::from(2);
+    }
+    if cli.web && !cfg!(feature = "web") {
+        eprintln!("{BIN}: this build has no web support enabled");
+        return ExitCode::from(2);
+    }
     #[cfg(all(feature = "gui", feature = "web"))]
     if cli.gui && cli.web {
         return run_gui_and_web(web_settings(cli));
@@ -286,36 +296,74 @@ fn launch(cli: &Cli) -> ExitCode {
         };
     }
     let _ = cli;
-    eprintln!("{BIN}: this build has no GUI or web support enabled");
+    eprintln!("{BIN}: no interface selected");
     ExitCode::from(2)
 }
 
 /// Runs the GUI on the main thread and the web server on a background thread,
-/// so neither interface blocks the other. Closing the GUI shuts the server down.
+/// so neither interface blocks the other. Closing the GUI shuts the server down,
+/// and an interrupting signal stops both.
 #[cfg(all(feature = "gui", feature = "web"))]
 fn run_gui_and_web(settings: itsulu_repo_sanitizer::web::state::WebSettings) -> ExitCode {
-    let (handle, shutdown) = match itsulu_repo_sanitizer::web::server::spawn_web(settings) {
-        Ok(pair) => pair,
-        Err(err) => {
-            eprintln!("{BIN}: web error: {err:#}");
-            return ExitCode::from(1);
-        }
-    };
-    let gui_result = itsulu_repo_sanitizer::gui::run_gui();
+    let on_signal: Option<itsulu_repo_sanitizer::web::server::SignalCallback> =
+        Some(Box::new(|| {
+            let _ = slint::invoke_from_event_loop(|| {
+                let _ = slint::quit_event_loop();
+            });
+        }));
+    run_gui_and_web_with(settings, on_signal, || {
+        itsulu_repo_sanitizer::gui::run_gui().map_err(|err| err.to_string())
+    })
+}
+
+/// The composition behind GUI + Web, with an injectable GUI runner so the
+/// "closing the GUI stops the web server" contract is testable without a display.
+#[cfg(all(feature = "gui", feature = "web"))]
+fn run_gui_and_web_with(
+    settings: itsulu_repo_sanitizer::web::state::WebSettings,
+    on_signal: Option<itsulu_repo_sanitizer::web::server::SignalCallback>,
+    run_gui: impl FnOnce() -> Result<(), String>,
+) -> ExitCode {
+    let (handle, shutdown) =
+        match itsulu_repo_sanitizer::web::server::spawn_web(settings, on_signal) {
+            Ok(pair) => pair,
+            Err(err) => {
+                eprintln!("{BIN}: web error: {err:#}");
+                return ExitCode::from(1);
+            }
+        };
+    let gui_result = run_gui();
     let _ = shutdown.send(());
-    let web_result = handle.join();
+    // Bound the graceful drain so a stalled connection cannot keep the process
+    // alive after the GUI closes.
+    let web_result = join_with_timeout(handle, std::time::Duration::from_secs(20));
     match (gui_result, web_result) {
-        (Ok(()), Ok(Ok(()))) => ExitCode::SUCCESS,
+        (Ok(()), Some(Ok(Ok(())))) => ExitCode::SUCCESS,
         (gui, web) => {
             if let Err(err) = gui {
                 eprintln!("{BIN}: GUI error: {err}");
             }
-            if let Ok(Err(err)) = web {
-                eprintln!("{BIN}: web error: {err:#}");
+            match web {
+                Some(Ok(Err(err))) => eprintln!("{BIN}: web error: {err:#}"),
+                Some(Err(_)) => eprintln!("{BIN}: web server thread panicked"),
+                None => eprintln!("{BIN}: web server did not stop within the timeout"),
+                Some(Ok(Ok(()))) => {}
             }
             ExitCode::from(1)
         }
     }
+}
+
+#[cfg(all(feature = "gui", feature = "web"))]
+fn join_with_timeout(
+    handle: std::thread::JoinHandle<anyhow::Result<()>>,
+    timeout: std::time::Duration,
+) -> Option<std::thread::Result<anyhow::Result<()>>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(handle.join());
+    });
+    rx.recv_timeout(timeout).ok()
 }
 
 fn run_sanitize(args: SanitizeArgs) -> ExitCode {
@@ -504,5 +552,59 @@ mod tests {
         assert!(cli.gui && cli.web);
         // Web options are only valid together with --web.
         assert!(Cli::try_parse_from([BIN, "--web-bind", "127.0.0.1:9000"]).is_err());
+    }
+
+    #[test]
+    fn unavailable_modes_are_reported_rather_than_downgraded() {
+        if !cfg!(feature = "gui") {
+            let cli = Cli::try_parse_from([BIN, "--gui"]).unwrap();
+            assert_eq!(launch(&cli), ExitCode::from(2));
+        }
+        if !cfg!(feature = "web") {
+            let cli = Cli::try_parse_from([BIN, "--web"]).unwrap();
+            assert_eq!(launch(&cli), ExitCode::from(2));
+        }
+    }
+
+    /// The GUI + Web contract: the web server runs on a background thread while
+    /// the GUI runs, and the server stops when the GUI returns.
+    #[cfg(all(feature = "gui", feature = "web"))]
+    #[test]
+    fn gui_and_web_runs_both_and_stops_the_server_when_the_gui_exits() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+
+        let root = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let settings = itsulu_repo_sanitizer::web::state::WebSettings {
+            bind: format!("127.0.0.1:{port}").parse().unwrap(),
+            root: root.path().to_path_buf(),
+            ..Default::default()
+        };
+        let code = run_gui_and_web_with(settings, None, || {
+            // Stand in for the GUI event loop: confirm the server is up, then
+            // return as if the window had been closed.
+            for _ in 0..100 {
+                if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
+                    let _ = stream.write_all(
+                        b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                    );
+                    let mut buffer = String::new();
+                    let _ = stream.read_to_string(&mut buffer);
+                    if buffer.contains("200") {
+                        return Ok(());
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err("web server was not healthy while the GUI ran".to_owned())
+        });
+        assert_eq!(code, ExitCode::SUCCESS);
+        // The port is released once the GUI has exited.
+        assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_ok());
     }
 }

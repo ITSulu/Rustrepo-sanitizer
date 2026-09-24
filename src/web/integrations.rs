@@ -83,7 +83,7 @@ pub struct Integrations {
 impl Integrations {
     pub fn new(config: IntegrationsConfig) -> Self {
         let client = reqwest::Client::builder()
-            .user_agent("Rustrepo-sanitizer-web")
+            .user_agent("Rustrepo-sanitizer")
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("building HTTP client");
@@ -120,9 +120,11 @@ impl Integrations {
             .map_err(|_| IntegrationsError::InvalidRepository)
     }
 
-    pub fn github_clone_url(owner: &str, repo: &str) -> Url {
+    pub fn github_clone_url(owner: &str, repo: &str) -> Result<Url, IntegrationsError> {
+        validate_component(owner)?;
+        validate_component(repo)?;
         Url::parse(&format!("https://github.com/{owner}/{repo}.git"))
-            .expect("owner/repo validated by callers")
+            .map_err(|_| IntegrationsError::InvalidRepository)
     }
 
     pub async fn list_forgejo_repos(&self) -> Result<Vec<RepoSummary>, IntegrationsError> {
@@ -267,7 +269,9 @@ mod tests {
             Err(IntegrationsError::InvalidRepository)
         ));
         assert_eq!(
-            Integrations::github_clone_url("org", "repo").as_str(),
+            Integrations::github_clone_url("org", "repo")
+                .unwrap()
+                .as_str(),
             "https://github.com/org/repo.git"
         );
     }

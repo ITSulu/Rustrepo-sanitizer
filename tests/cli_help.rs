@@ -157,6 +157,26 @@ fn help_stays_readable_at_normal_terminal_widths() {
 }
 
 #[test]
+fn top_level_help_documents_launch_and_web_groups() {
+    let (code, stdout, _) = run(&["--help"]);
+    assert_eq!(code, 0);
+    let launch = stdout
+        .find(help::GROUP_LAUNCH)
+        .expect("top-level help must show the Launch group");
+    let web = stdout
+        .find(help::GROUP_WEB)
+        .expect("top-level help must show the Web server group");
+    assert!(launch < web, "Launch must precede Web server");
+    let text = normalize(&stdout);
+    for description in help::LAUNCH_HELP {
+        assert!(
+            text.contains(&normalize(description)),
+            "top-level help is missing: {description}"
+        );
+    }
+}
+
+#[test]
 fn groups_appear_in_the_documented_order() {
     let (_, stdout, _) = run(&["sanitize", "--help"]);
     let mut last = 0;

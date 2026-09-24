@@ -305,6 +305,9 @@ mod tests {
         assert!(workflow.contains("cargo test --all-features"));
         assert!(workflow.contains("cargo clippy --all-targets --all-features"));
         assert!(workflow.contains("cargo build --bin Rustrepo-sanitizer"));
+        // Single-interface builds must keep compiling.
+        assert!(workflow.contains("cargo check --no-default-features --features gui"));
+        assert!(workflow.contains("cargo check --no-default-features --features web"));
     }
 
     #[test]

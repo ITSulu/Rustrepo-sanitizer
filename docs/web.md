@@ -107,13 +107,20 @@ Input modes: `local_path`, `git_url`, `upload`, `forgejo`, `github`.
   normalized and validated; traversal is rejected.
 - **Git refs** are validated to prevent option injection.
 - **API auth** is a constant-time bearer-token check applied to all `/api/*`
-  routes when `RUSTREPO_WEB_TOKEN` is set. Bind to loopback unless you provide
+  routes when `RUSTREPO_WEB_TOKEN` is set, and the UI requires signing in
+  (`/ui/login`) with an `HttpOnly` session cookie that is marked `Secure` when
+  the bind address is not loopback. Bind to loopback unless you provide
   authentication in front of the UI.
+- **Residual SSRF**: the resolved address is validated before cloning, redirects
+  are disabled, and private/reserved addresses are rejected, but a
+  DNS-rebinding host could still resolve to an internal address at clone time
+  (the validated answer is not pinned). Run the server where it cannot reach
+  unintended internal services.
 - **Workspaces** are isolated per job and removed deterministically.
 
 ## Measurements
 
-`crates/web/tests/performance.rs` records request latency, idle memory, browser
+`tests/performance.rs` records request latency, idle memory, browser
 payload size, concurrent-job throughput, and cleanup on every run. Representative
 values from a debug test build (release builds are faster and smaller):
 
