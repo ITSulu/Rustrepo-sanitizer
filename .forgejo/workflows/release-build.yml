@@ -15,6 +15,7 @@ env:
 jobs:
   build:
     runs-on: garuda-16
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -68,6 +69,7 @@ jobs:
 
   packages:
     runs-on: garuda-16
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +134,7 @@ jobs:
 
   windows:
     runs-on: garuda-16
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with:
@@ -168,6 +171,7 @@ jobs:
   publish:
     needs: [build, packages, windows]
     runs-on: garuda-16
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
