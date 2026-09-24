@@ -1,21 +1,51 @@
-use std::{io::Read, path::PathBuf, process::ExitCode};
+//! Unified `Rustrepo-sanitizer` executable.
+//!
+//! One binary provides the CLI, the Slint desktop GUI, and the Leptos/Axum web
+//! UI. `--gui` and `--web` select the graphical interfaces (alone or together);
+//! with neither, the sanitize CLI runs. No helper process is spawned.
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::{io::Read, net::SocketAddr, path::PathBuf, process::ExitCode};
+
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use itsulu_repo_sanitizer::help;
 use itsulu_repo_sanitizer::sanitizer::{
     default_output_path, run, ArchiveFormat, Compression, Config, PasswordPolicy, ReportFormat,
 };
 
+const BIN: &str = "Rustrepo-sanitizer";
+
 #[derive(Parser)]
 #[command(
-    name = "itsulu-repo-sanitizer",
+    name = "Rustrepo-sanitizer",
     version,
     max_term_width = 100,
-    about = "Create a safe AI review archive from a Git repository"
+    about = "Sanitize Git repositories for safe AI review (CLI, desktop GUI, and web UI)"
 )]
 struct Cli {
+    #[arg(long, help = help::LAUNCH_GUI, help_heading = help::GROUP_LAUNCH)]
+    gui: bool,
+    #[arg(long, help = help::LAUNCH_WEB, help_heading = help::GROUP_LAUNCH)]
+    web: bool,
+
+    #[arg(long, value_name = "ADDR", help = help::WEB_BIND, help_heading = help::GROUP_WEB, requires = "web")]
+    web_bind: Option<SocketAddr>,
+    #[arg(long, value_name = "TOKEN", help = help::WEB_TOKEN, help_heading = help::GROUP_WEB, requires = "web")]
+    web_token: Option<String>,
+    #[arg(long, value_name = "DIR", help = help::WEB_ROOT, help_heading = help::GROUP_WEB, requires = "web")]
+    web_root: Option<PathBuf>,
+    #[arg(long, value_name = "PATHS", help = help::WEB_LOCAL_ROOTS, help_heading = help::GROUP_WEB, requires = "web")]
+    web_local_roots: Option<String>,
+    #[arg(long, value_name = "URL", help = help::WEB_FORGEJO_BASE, help_heading = help::GROUP_WEB, requires = "web")]
+    web_forgejo_base: Option<String>,
+    #[arg(long, value_name = "TOKEN", help = help::WEB_FORGEJO_TOKEN, help_heading = help::GROUP_WEB, requires = "web")]
+    web_forgejo_token: Option<String>,
+    #[arg(long, value_name = "URL", help = help::WEB_GITHUB_API, help_heading = help::GROUP_WEB, requires = "web")]
+    web_github_api: Option<String>,
+    #[arg(long, value_name = "TOKEN", help = help::WEB_GITHUB_TOKEN, help_heading = help::GROUP_WEB, requires = "web")]
+    web_github_token: Option<String>,
+
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -172,13 +202,171 @@ enum CliReportFormat {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if matches!(cli.command, Command::ListFormats) {
-        itsulu_repo_sanitizer::sanitizer::print_formats();
-        return ExitCode::SUCCESS;
+
+    if (cli.gui || cli.web) && cli.command.is_some() {
+        eprintln!("{BIN}: --gui/--web cannot be combined with a subcommand");
+        return ExitCode::from(2);
     }
-    let Command::Sanitize(args) = cli.command else {
-        unreachable!()
-    };
+    if cli.gui || cli.web {
+        return launch(&cli);
+    }
+
+    match cli.command {
+        Some(Command::ListFormats) => {
+            itsulu_repo_sanitizer::sanitizer::print_formats();
+            ExitCode::SUCCESS
+        }
+        Some(Command::Sanitize(args)) => run_sanitize(args),
+        None => {
+            // No launch mode and no subcommand: show help on stderr.
+            let mut command = Cli::command();
+            let _ = command.print_help();
+            ExitCode::from(2)
+        }
+    }
+}
+
+#[cfg(feature = "web")]
+fn web_settings(cli: &Cli) -> itsulu_repo_sanitizer::web::state::WebSettings {
+    let mut settings = itsulu_repo_sanitizer::web::state::WebSettings::from_env();
+    if let Some(bind) = cli.web_bind {
+        settings.bind = bind;
+    }
+    if let Some(token) = &cli.web_token {
+        settings.token = Some(token.clone());
+    }
+    if let Some(root) = &cli.web_root {
+        settings.root = root.clone();
+    }
+    if let Some(roots) = &cli.web_local_roots {
+        settings.local_roots = roots
+            .split(':')
+            .filter(|entry| !entry.trim().is_empty())
+            .map(PathBuf::from)
+            .collect();
+    }
+    if let Some(base) = &cli.web_forgejo_base {
+        settings.forgejo_base = url::Url::parse(base).ok();
+    }
+    if let Some(token) = &cli.web_forgejo_token {
+        settings.forgejo_token = Some(token.clone());
+    }
+    if let Some(api) = &cli.web_github_api {
+        settings.github_api = url::Url::parse(api).ok();
+    }
+    if let Some(token) = &cli.web_github_token {
+        settings.github_token = Some(token.clone());
+    }
+    settings
+}
+
+fn launch(cli: &Cli) -> ExitCode {
+    // Reject a requested mode that this build cannot provide, rather than
+    // silently starting only the available one.
+    if cli.gui && !cfg!(feature = "gui") {
+        eprintln!("{BIN}: this build has no GUI support enabled");
+        return ExitCode::from(2);
+    }
+    if cli.web && !cfg!(feature = "web") {
+        eprintln!("{BIN}: this build has no web support enabled");
+        return ExitCode::from(2);
+    }
+    #[cfg(all(feature = "gui", feature = "web"))]
+    if cli.gui && cli.web {
+        return run_gui_and_web(web_settings(cli));
+    }
+    #[cfg(feature = "gui")]
+    if cli.gui {
+        return match itsulu_repo_sanitizer::gui::run_gui() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("{BIN}: GUI error: {err}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    #[cfg(feature = "web")]
+    if cli.web {
+        return match itsulu_repo_sanitizer::web::server::run_web_only(web_settings(cli)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("{BIN}: web error: {err:#}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    let _ = cli;
+    eprintln!("{BIN}: no interface selected");
+    ExitCode::from(2)
+}
+
+/// Runs the GUI on the main thread and the web server on a background thread,
+/// so neither interface blocks the other. Closing the GUI shuts the server down,
+/// and an interrupting signal stops both.
+#[cfg(all(feature = "gui", feature = "web"))]
+fn run_gui_and_web(settings: itsulu_repo_sanitizer::web::state::WebSettings) -> ExitCode {
+    let on_signal: Option<itsulu_repo_sanitizer::web::server::SignalCallback> =
+        Some(Box::new(|| {
+            let _ = slint::invoke_from_event_loop(|| {
+                let _ = slint::quit_event_loop();
+            });
+        }));
+    run_gui_and_web_with(settings, on_signal, || {
+        itsulu_repo_sanitizer::gui::run_gui().map_err(|err| err.to_string())
+    })
+}
+
+/// The composition behind GUI + Web, with an injectable GUI runner so the
+/// "closing the GUI stops the web server" contract is testable without a display.
+#[cfg(all(feature = "gui", feature = "web"))]
+fn run_gui_and_web_with(
+    settings: itsulu_repo_sanitizer::web::state::WebSettings,
+    on_signal: Option<itsulu_repo_sanitizer::web::server::SignalCallback>,
+    run_gui: impl FnOnce() -> Result<(), String>,
+) -> ExitCode {
+    let (handle, shutdown) =
+        match itsulu_repo_sanitizer::web::server::spawn_web(settings, on_signal) {
+            Ok(pair) => pair,
+            Err(err) => {
+                eprintln!("{BIN}: web error: {err:#}");
+                return ExitCode::from(1);
+            }
+        };
+    let gui_result = run_gui();
+    let _ = shutdown.send(());
+    // Bound the graceful drain so a stalled connection cannot keep the process
+    // alive after the GUI closes.
+    let web_result = join_with_timeout(handle, std::time::Duration::from_secs(20));
+    match (gui_result, web_result) {
+        (Ok(()), Some(Ok(Ok(())))) => ExitCode::SUCCESS,
+        (gui, web) => {
+            if let Err(err) = gui {
+                eprintln!("{BIN}: GUI error: {err}");
+            }
+            match web {
+                Some(Ok(Err(err))) => eprintln!("{BIN}: web error: {err:#}"),
+                Some(Err(_)) => eprintln!("{BIN}: web server thread panicked"),
+                None => eprintln!("{BIN}: web server did not stop within the timeout"),
+                Some(Ok(Ok(()))) => {}
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(all(feature = "gui", feature = "web"))]
+fn join_with_timeout(
+    handle: std::thread::JoinHandle<anyhow::Result<()>>,
+    timeout: std::time::Duration,
+) -> Option<std::thread::Result<anyhow::Result<()>>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(handle.join());
+    });
+    rx.recv_timeout(timeout).ok()
+}
+
+fn run_sanitize(args: SanitizeArgs) -> ExitCode {
     let format = args.archive;
     let report = match args.report {
         CliReportFormat::Markdown => ReportFormat::Markdown,
@@ -195,7 +383,7 @@ fn main() -> ExitCode {
         ) {
             Ok(path) => path,
             Err(err) => {
-                eprintln!("itsulu-repo-sanitizer: {err:#}");
+                eprintln!("{BIN}: {err:#}");
                 return ExitCode::from(if err.to_string().contains("compression") {
                     2
                 } else {
@@ -207,7 +395,7 @@ fn main() -> ExitCode {
     let password = match read_password(args.password_file.as_deref(), args.password_stdin) {
         Ok(password) => password,
         Err(err) => {
-            eprintln!("itsulu-repo-sanitizer: {err}");
+            eprintln!("{BIN}: {err}");
             return ExitCode::from(2);
         }
     };
@@ -250,7 +438,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(err) => {
-            eprintln!("itsulu-repo-sanitizer: {err:#}");
+            eprintln!("{BIN}: {err:#}");
             let message = err.to_string().to_ascii_lowercase();
             let code = if message.contains("secret detected") {
                 4
@@ -297,7 +485,7 @@ mod tests {
     #[test]
     fn sanitize_parser_preserves_safe_defaults_and_explicit_options() {
         let cli = Cli::try_parse_from([
-            "itsulu-repo-sanitizer",
+            BIN,
             "sanitize",
             "repo",
             "--archive",
@@ -315,7 +503,7 @@ mod tests {
             "--no-redact",
         ])
         .unwrap();
-        let Command::Sanitize(args) = cli.command else {
+        let Command::Sanitize(args) = cli.command.unwrap() else {
             panic!("expected sanitize command")
         };
         assert_eq!(args.repository, PathBuf::from("repo"));
@@ -330,7 +518,7 @@ mod tests {
     #[test]
     fn password_file_and_stdin_are_mutually_exclusive() {
         assert!(Cli::try_parse_from([
-            "itsulu-repo-sanitizer",
+            BIN,
             "sanitize",
             "--password-file",
             "password.txt",
@@ -341,8 +529,8 @@ mod tests {
 
     #[test]
     fn sanitize_parser_uses_documented_defaults() {
-        let cli = Cli::try_parse_from(["itsulu-repo-sanitizer", "sanitize"]).unwrap();
-        let Command::Sanitize(args) = cli.command else {
+        let cli = Cli::try_parse_from([BIN, "sanitize"]).unwrap();
+        let Command::Sanitize(args) = cli.command.unwrap() else {
             panic!("expected sanitize command")
         };
         assert_eq!(args.repository, PathBuf::from("."));
@@ -351,5 +539,72 @@ mod tests {
         assert!(matches!(args.report, CliReportFormat::Markdown));
         assert!(args.redact && args.timestamp_name);
         assert_eq!(args.password_min_length, 8);
+    }
+
+    #[test]
+    fn launch_modes_parse_and_web_options_require_web() {
+        let cli = Cli::try_parse_from([BIN, "--gui"]).unwrap();
+        assert!(cli.gui && !cli.web);
+        let cli = Cli::try_parse_from([BIN, "--web", "--web-bind", "127.0.0.1:9000"]).unwrap();
+        assert!(cli.web && !cli.gui);
+        assert_eq!(cli.web_bind.unwrap().port(), 9000);
+        let cli = Cli::try_parse_from([BIN, "--gui", "--web"]).unwrap();
+        assert!(cli.gui && cli.web);
+        // Web options are only valid together with --web.
+        assert!(Cli::try_parse_from([BIN, "--web-bind", "127.0.0.1:9000"]).is_err());
+    }
+
+    #[test]
+    fn unavailable_modes_are_reported_rather_than_downgraded() {
+        if !cfg!(feature = "gui") {
+            let cli = Cli::try_parse_from([BIN, "--gui"]).unwrap();
+            assert_eq!(launch(&cli), ExitCode::from(2));
+        }
+        if !cfg!(feature = "web") {
+            let cli = Cli::try_parse_from([BIN, "--web"]).unwrap();
+            assert_eq!(launch(&cli), ExitCode::from(2));
+        }
+    }
+
+    /// The GUI + Web contract: the web server runs on a background thread while
+    /// the GUI runs, and the server stops when the GUI returns.
+    #[cfg(all(feature = "gui", feature = "web"))]
+    #[test]
+    fn gui_and_web_runs_both_and_stops_the_server_when_the_gui_exits() {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+
+        let root = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let settings = itsulu_repo_sanitizer::web::state::WebSettings {
+            bind: format!("127.0.0.1:{port}").parse().unwrap(),
+            root: root.path().to_path_buf(),
+            ..Default::default()
+        };
+        let code = run_gui_and_web_with(settings, None, || {
+            // Stand in for the GUI event loop: confirm the server is up, then
+            // return as if the window had been closed.
+            for _ in 0..100 {
+                if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
+                    let _ = stream.write_all(
+                        b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                    );
+                    let mut buffer = String::new();
+                    let _ = stream.read_to_string(&mut buffer);
+                    if buffer.contains("200") {
+                        return Ok(());
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err("web server was not healthy while the GUI ran".to_owned())
+        });
+        assert_eq!(code, ExitCode::SUCCESS);
+        // The port is released once the GUI has exited.
+        assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_ok());
     }
 }

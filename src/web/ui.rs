@@ -10,9 +10,9 @@ use std::collections::HashMap;
 
 use leptos::prelude::*;
 
-use crate::dto::CapabilitiesView;
-use crate::jobs::JobStatus;
-use crate::jobs::JobView;
+use crate::web::dto::CapabilitiesView;
+use crate::web::jobs::JobStatus;
+use crate::web::jobs::JobView;
 
 const STYLE: &str = r#"
 :root { color-scheme: light dark; --fg:#111827; --bg:#f8fafc; --card:#ffffff; --accent:#1d4ed8; --border:#cbd5e1; --muted:#475569; }

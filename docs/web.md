@@ -1,19 +1,40 @@
 # Web UI
 
-The `rustrepo-sanitizer-web` crate serves an Axum HTTP/API server and a Leptos
-server-rendered (SSR) web UI. Both frontends call the same sanitizer core as
-the CLI and the Slint desktop GUI, so sanitization logic is never duplicated.
+The unified `Rustrepo-sanitizer` executable serves an Axum HTTP/API server and a
+Leptos server-rendered (SSR) web UI when started with `--web`. All interfaces
+(CLI, Slint desktop GUI, web) call the same sanitizer core, so sanitization
+logic is never duplicated.
 
 ## Run
 
 ```bash
-cargo run -p itsulu-repo-sanitizer-web
-# or, from a release build:
-rustrepo-sanitizer-web
+# web UI only
+cargo run -- --web
+# GUI and web together, in one process:
+cargo run -- --gui --web
+# from a release build:
+Rustrepo-sanitizer --web
+Rustrepo-sanitizer --gui --web
 ```
 
 The server binds to `127.0.0.1:8787` by default. Open
 <http://127.0.0.1:8787/> for the UI.
+
+### Launch options
+
+| Option | Purpose |
+|---|---|
+| `--web` | Start the web UI and HTTP API. |
+| `--gui` | Start the desktop GUI. |
+| `--gui --web` | Run both in one process. |
+| `--web-bind <ADDR>` | Bind address (equivalent to `RUSTREPO_WEB_BIND`). |
+| `--web-token <TOKEN>` | Require a bearer token for the API and UI login. |
+| `--web-root <DIR>` | Workspace/upload root. |
+| `--web-local-roots <PATHS>` | Allowed local-path roots. |
+| `--web-forgejo-base <URL>` / `--web-forgejo-token <TOKEN>` | Forgejo selector. |
+| `--web-github-api <URL>` / `--web-github-token <TOKEN>` | GitHub selector. |
+
+Web options are only accepted together with `--web`.
 
 ### Environment
 
@@ -33,11 +54,14 @@ serialized into a response and never reach the browser.
 
 ## Architecture
 
+All modules live under `src/web/`.
+
 - `security` — URL/SSRF validation, path traversal checks, and safe archive
   extraction.
 - `acquire` — resolves each of the five input modes into an isolated checkout.
 - `workspace` — bounded, expiring job workspaces with deterministic cleanup.
 - `uploads` — opaque-id upload store with streaming size enforcement.
+- `server` — web server lifecycle (web-only, or a background thread for GUI+Web).
 - `integrations` — Forgejo/GitHub clients; tokens stay in `IntegrationsConfig`.
 - `dto` — request/response types and the mapping onto the shared core `Config`.
 - `jobs` — in-memory job registry and the sanitization runner.
@@ -83,13 +107,20 @@ Input modes: `local_path`, `git_url`, `upload`, `forgejo`, `github`.
   normalized and validated; traversal is rejected.
 - **Git refs** are validated to prevent option injection.
 - **API auth** is a constant-time bearer-token check applied to all `/api/*`
-  routes when `RUSTREPO_WEB_TOKEN` is set. Bind to loopback unless you provide
+  routes when `RUSTREPO_WEB_TOKEN` is set, and the UI requires signing in
+  (`/ui/login`) with an `HttpOnly` session cookie that is marked `Secure` when
+  the bind address is not loopback. Bind to loopback unless you provide
   authentication in front of the UI.
+- **Residual SSRF**: the resolved address is validated before cloning, redirects
+  are disabled, and private/reserved addresses are rejected, but a
+  DNS-rebinding host could still resolve to an internal address at clone time
+  (the validated answer is not pinned). Run the server where it cannot reach
+  unintended internal services.
 - **Workspaces** are isolated per job and removed deterministically.
 
 ## Measurements
 
-`crates/web/tests/performance.rs` records request latency, idle memory, browser
+`tests/performance.rs` records request latency, idle memory, browser
 payload size, concurrent-job throughput, and cleanup on every run. Representative
 values from a debug test build (release builds are faster and smaller):
 
@@ -105,3 +136,18 @@ values from a debug test build (release builds are faster and smaller):
 
 Server-rendered HTML keeps the browser payload minimal: the UI is fully
 keyboard-operable without JavaScript, so there is no hydration bundle to ship.
+
+### Unified-binary idle memory
+
+Release-build idle RSS (`VmRSS`), measured after startup with the server running:
+
+| Configuration | Idle RSS |
+|---|---|
+| 0.6.0 `rustrepo-sanitizer-web` (web only) | ~5 MiB |
+| 0.6.1 `Rustrepo-sanitizer --web` | ~10 MiB |
+| 0.6.1 `Rustrepo-sanitizer --gui --web` | ~185 MiB (Slint/winit + GL) |
+
+Web-only memory rises slightly over 0.6.0 because the same binary also links the
+GUI toolkit; the GUI stack is only initialized when `--gui` is used. GUI + Web
+adds the Slint windowing/renderer footprint and runs both interfaces in one
+process with no helper executable.

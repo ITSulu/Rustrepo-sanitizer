@@ -10,16 +10,16 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use futures_util::future::BoxFuture;
 use http_body_util::BodyExt;
-use itsulu_repo_sanitizer_web::acquire::{CloneRunner, HostResolver};
-use itsulu_repo_sanitizer_web::integrations::{Integrations, IntegrationsConfig};
-use itsulu_repo_sanitizer_web::routes::build_router;
-use itsulu_repo_sanitizer_web::state::AppState;
-use itsulu_repo_sanitizer_web::uploads::UploadStore;
-use itsulu_repo_sanitizer_web::workspace::{Limits, WorkspaceManager};
+use itsulu_repo_sanitizer::web::acquire::{CloneRunner, HostResolver};
+use itsulu_repo_sanitizer::web::integrations::{Integrations, IntegrationsConfig};
+use itsulu_repo_sanitizer::web::routes::build_router;
+use itsulu_repo_sanitizer::web::state::AppState;
+use itsulu_repo_sanitizer::web::uploads::UploadStore;
+use itsulu_repo_sanitizer::web::workspace::{Limits, WorkspaceManager};
 use tower::ServiceExt;
 
 fn init_executor() {
-    itsulu_repo_sanitizer_web::init_executor();
+    itsulu_repo_sanitizer::web::init_executor();
 }
 
 struct FakeRunner;

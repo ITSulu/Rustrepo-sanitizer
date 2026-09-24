@@ -10,15 +10,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::sanitizer::{self, ProgressEvent};
 use anyhow::{bail, Context, Result};
-use itsulu_repo_sanitizer::sanitizer::{self, ProgressEvent};
 use serde::Serialize;
 
-use crate::acquire::{AcquireError, Acquirer};
-use crate::dto::{InputMode, InputSpec, OptionsDto};
-use crate::reports::extract_reports;
-use crate::security::safe_output_name;
-use crate::state::AppState;
+use crate::web::acquire::{AcquireError, Acquirer};
+use crate::web::dto::{InputMode, InputSpec, OptionsDto};
+use crate::web::reports::extract_reports;
+use crate::web::security::safe_output_name;
+use crate::web::state::AppState;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -259,7 +259,7 @@ async fn run_job(
         integrations: state.integrations.clone(),
         allowed_local_roots: state.allowed_local_roots.clone(),
         max_repo_bytes: state.limits.max_repo_bytes,
-        extraction_budget: crate::security::ExtractionBudget::default(),
+        extraction_budget: crate::web::security::ExtractionBudget::default(),
     };
 
     set_status(

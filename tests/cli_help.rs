@@ -5,7 +5,7 @@ use std::process::Command;
 use itsulu_repo_sanitizer::help;
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_itsulu-repo-sanitizer"))
+    let output = Command::new(env!("CARGO_BIN_EXE_Rustrepo-sanitizer"))
         .args(args)
         .output()
         .expect("the sanitizer binary must run");
@@ -154,6 +154,26 @@ fn help_stays_readable_at_normal_terminal_widths() {
         widest <= 100,
         "help lines must not exceed a normal terminal width (widest was {widest})"
     );
+}
+
+#[test]
+fn top_level_help_documents_launch_and_web_groups() {
+    let (code, stdout, _) = run(&["--help"]);
+    assert_eq!(code, 0);
+    let launch = stdout
+        .find(help::GROUP_LAUNCH)
+        .expect("top-level help must show the Launch group");
+    let web = stdout
+        .find(help::GROUP_WEB)
+        .expect("top-level help must show the Web server group");
+    assert!(launch < web, "Launch must precede Web server");
+    let text = normalize(&stdout);
+    for description in help::LAUNCH_HELP {
+        assert!(
+            text.contains(&normalize(description)),
+            "top-level help is missing: {description}"
+        );
+    }
 }
 
 #[test]

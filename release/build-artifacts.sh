@@ -3,7 +3,7 @@ set -euo pipefail
 
 version=${1:?usage: build-artifacts.sh VERSION OUTPUT_DIR [BINARY]}
 out=${2:?usage: build-artifacts.sh VERSION OUTPUT_DIR [BINARY]}
-binary=${3:-target/release/itsulu-repo-sanitizer}
+binary=${3:-target/release/Rustrepo-sanitizer}
 platform=${RELEASE_PLATFORM:?RELEASE_PLATFORM is required}
 arch=${RELEASE_ARCH:?RELEASE_ARCH is required}
 name=rustrepo-sanitizer-${version}
@@ -30,16 +30,16 @@ else
 fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-cp "$binary" "$stage/itsulu-repo-sanitizer"
-chmod 0755 "$stage/itsulu-repo-sanitizer"
-tar -C "$stage" -czf "$out/${name}-${platform}-${arch}.tar.gz" itsulu-repo-sanitizer
+cp "$binary" "$stage/Rustrepo-sanitizer"
+chmod 0755 "$stage/Rustrepo-sanitizer"
+tar -C "$stage" -czf "$out/${name}-${platform}-${arch}.tar.gz" Rustrepo-sanitizer
 
 formats=",${RELEASE_FORMATS:-},"
   if [[ "$formats" == *,arch,* ]]; then
     [[ "$arch" == x86_64 || "$arch" == aarch64 ]] || { echo "Arch packages require x86_64 or aarch64" >&2; exit 2; }
   command -v makepkg >/dev/null
   pkgroot="$stage/arch"; mkdir -p "$pkgroot/usr/bin"
-  cp "$binary" "$pkgroot/usr/bin/itsulu-repo-sanitizer"
+  cp "$binary" "$pkgroot/usr/bin/Rustrepo-sanitizer"
   cat > "$pkgroot/PKGBUILD" <<EOF
 pkgname=rustrepo-sanitizer
 pkgver=${version//./_}
@@ -49,7 +49,7 @@ arch=('$arch')
 options=('!debug')
 license=('Apache-2.0')
 url='https://git.itsulu.com/itsulu/Rustrepo-sanitizer'
-package() { install -Dm755 "\$startdir/usr/bin/itsulu-repo-sanitizer" "\$pkgdir/usr/bin/itsulu-repo-sanitizer"; }
+package() { install -Dm755 "\$startdir/usr/bin/Rustrepo-sanitizer" "\$pkgdir/usr/bin/Rustrepo-sanitizer"; }
 EOF
   (cd "$pkgroot" && makepkg --nodeps --force >/dev/null)
   pkg=$(find "$pkgroot" -maxdepth 1 -type f -name '*.pkg.tar.*' -print -quit)

@@ -13,13 +13,13 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use futures_util::future::BoxFuture;
 
-use crate::dto::InputSpec;
-use crate::integrations::Integrations;
-use crate::security::{
+use crate::web::dto::InputSpec;
+use crate::web::integrations::Integrations;
+use crate::web::security::{
     ensure_public_addrs, extract_tar, extract_zip, git_clone_argv, validate_git_url,
     ExtractionBudget, SecurityError,
 };
-use crate::uploads::UploadStore;
+use crate::web::uploads::UploadStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AcquireError {
@@ -132,7 +132,7 @@ impl Acquirer {
         match spec {
             InputSpec::LocalPath { path } => self.acquire_local(path, dest),
             InputSpec::GitUrl { url } => self.acquire_url(url, dest).await,
-            InputSpec::Upload { upload_id } => self.acquire_upload(upload_id, dest),
+            InputSpec::Upload { upload_id } => self.acquire_upload(upload_id, dest).await,
             InputSpec::Forgejo {
                 owner,
                 repo,
@@ -154,7 +154,8 @@ impl Acquirer {
                 repo,
                 git_ref,
             } => {
-                let url = Integrations::github_clone_url(owner, repo);
+                let url = Integrations::github_clone_url(owner, repo)
+                    .map_err(|err| AcquireError::Invalid(err.to_string()))?;
                 let auth = self
                     .integrations
                     .github_token()
@@ -248,7 +249,12 @@ impl Acquirer {
             .clone(argv, env, dest.to_path_buf())
             .await
             .map_err(AcquireError::Clone)?;
-        let size = directory_size(dest);
+        let size = {
+            let dest = dest.to_path_buf();
+            tokio::task::spawn_blocking(move || directory_size(&dest))
+                .await
+                .context("measuring the acquired repository")?
+        };
         if size > self.max_repo_bytes {
             let _ = std::fs::remove_dir_all(dest);
             return Err(AcquireError::TooLarge.into());
@@ -256,46 +262,51 @@ impl Acquirer {
         Ok(dest.to_path_buf())
     }
 
-    fn acquire_upload(&self, upload_id: &str, dest: &Path) -> Result<PathBuf> {
+    /// Extraction and repository detection are blocking work, so they run on the
+    /// blocking pool rather than stalling async worker threads.
+    async fn acquire_upload(&self, upload_id: &str, dest: &Path) -> Result<PathBuf> {
         let entry = self
             .uploads
             .get(upload_id)
             .ok_or(AcquireError::UploadNotFound)?;
-        std::fs::create_dir_all(dest).context("creating upload workspace")?;
+        let dest = dest.to_path_buf();
+        let budget = self.extraction_budget;
         match entry.kind {
-            crate::uploads::UploadKind::Archive => {
-                let file = std::fs::File::open(&entry.path).context("opening upload")?;
-                let name = entry.path.to_string_lossy().to_ascii_lowercase();
-                if name.ends_with(".zip") {
-                    extract_zip(file, dest, self.extraction_budget)?;
-                } else if name.ends_with(".tar")
-                    || name.ends_with(".tar.gz")
-                    || name.ends_with(".tgz")
-                {
-                    if name.ends_with(".tar") {
-                        extract_tar(file, dest, self.extraction_budget)?;
+            crate::web::uploads::UploadKind::Archive => {
+                let path = entry.path.clone();
+                tokio::task::spawn_blocking(move || -> Result<PathBuf> {
+                    std::fs::create_dir_all(&dest).context("creating upload workspace")?;
+                    let file = std::fs::File::open(&path).context("opening upload")?;
+                    let name = path.to_string_lossy().to_ascii_lowercase();
+                    if name.ends_with(".zip") {
+                        extract_zip(file, &dest, budget)?;
+                    } else if name.ends_with(".tar") {
+                        extract_tar(file, &dest, budget)?;
+                    } else if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+                        extract_tar(flate2::read::GzDecoder::new(file), &dest, budget)?;
                     } else {
-                        extract_tar(
-                            flate2::read::GzDecoder::new(file),
-                            dest,
-                            self.extraction_budget,
-                        )?;
+                        return Err(AcquireError::Invalid("unsupported archive type".into()).into());
                     }
-                } else {
-                    return Err(AcquireError::Invalid("unsupported archive type".into()).into());
-                }
-                let dir = find_repository_root(dest).ok_or(AcquireError::NotARepository)?;
-                Ok(dir)
+                    find_repository_root(&dest).ok_or_else(|| AcquireError::NotARepository.into())
+                })
+                .await
+                .context("archive extraction task panicked")?
             }
-            crate::uploads::UploadKind::Directory => {
-                let canonical = std::fs::canonicalize(&entry.path)?;
-                if !canonical.starts_with(self.uploads.root()) {
-                    return Err(AcquireError::Invalid("upload escaped its store".into()).into());
-                }
-                if !is_git_repository(&canonical) {
-                    return Err(AcquireError::NotARepository.into());
-                }
-                Ok(canonical)
+            crate::web::uploads::UploadKind::Directory => {
+                let path = entry.path.clone();
+                let root = self.uploads.root().to_path_buf();
+                tokio::task::spawn_blocking(move || -> Result<PathBuf> {
+                    let canonical = std::fs::canonicalize(&path)?;
+                    if !canonical.starts_with(&root) {
+                        return Err(AcquireError::Invalid("upload escaped its store".into()).into());
+                    }
+                    if !is_git_repository(&canonical) {
+                        return Err(AcquireError::NotARepository.into());
+                    }
+                    Ok(canonical)
+                })
+                .await
+                .context("upload task panicked")?
             }
         }
     }
@@ -380,14 +391,14 @@ pub fn directory_size(path: &Path) -> u64 {
 
 /// Ensures a decoded upload name is a safe single path segment.
 pub fn validate_upload_name(name: &str) -> Result<String, SecurityError> {
-    crate::security::safe_output_name(name)
+    crate::web::security::safe_output_name(name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dto::InputSpec;
-    use crate::integrations::IntegrationsConfig;
+    use crate::web::dto::InputSpec;
+    use crate::web::integrations::IntegrationsConfig;
     use std::net::IpAddr;
 
     struct FakeRunner;

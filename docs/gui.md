@@ -2,6 +2,8 @@
 
 The CLI and Slint GUI consume the shared `sanitizer` core. User-facing capabilities are registered in `src/lib.rs`; additions must be classified there and exposed in the GUI or documented as an exception.
 
+The GUI is part of the unified `Rustrepo-sanitizer` executable: run `Rustrepo-sanitizer --gui` for the desktop UI alone, or `Rustrepo-sanitizer --gui --web` to serve the web UI at the same time. GUI source lives in `src/gui.rs`; the Slint markup is `ui/main.slint`.
+
 Run the native development preview with `./scripts/gui-preview`. It enables Slint's development-only live reload and must not be used for release builds. For standalone UI iteration, install `slint-viewer` and run `slint-viewer --auto-reload ui/main.slint`.
 
 GUI controls use accessible labels as stable semantic automation identifiers. `xa11y` is the intended AT-SPI black-box test client; `enigo` is reserved for interactions unavailable through semantic access. `insta` is reserved for normalized view-model, capability, and result snapshots. Visual snapshots cover stable states only.

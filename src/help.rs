@@ -5,6 +5,18 @@
 //! `GUI_HELP` name the surfaces that must stay in sync; the regression tests
 //! fail if the CLI help or the Slint tooltips drift from these strings.
 
+// Launch modes for the unified binary.
+pub const LAUNCH_GUI: &str = "Start the desktop GUI.";
+pub const LAUNCH_WEB: &str = "Start the web UI and HTTP API.";
+pub const WEB_BIND: &str = "Web bind address, for example 127.0.0.1:8787.";
+pub const WEB_TOKEN: &str = "Require this bearer token for /api and the web UI login.";
+pub const WEB_ROOT: &str = "Directory for web job workspaces and uploads.";
+pub const WEB_LOCAL_ROOTS: &str = "Colon-separated roots allowed for the server-local path input.";
+pub const WEB_FORGEJO_BASE: &str = "Forgejo base URL for the repository selector.";
+pub const WEB_FORGEJO_TOKEN: &str = "Forgejo token used server-side for cloning and listing.";
+pub const WEB_GITHUB_API: &str = "GitHub API base URL for the repository selector.";
+pub const WEB_GITHUB_TOKEN: &str = "GitHub token used server-side for cloning and listing.";
+
 // Repository / input.
 pub const REPOSITORY: &str = "Git repository to sanitize; defaults to the current directory.";
 pub const INCLUDE_UNTRACKED: &str =
@@ -154,7 +166,23 @@ pub const GUI_HELP: &[&str] = &[
     ABOUT_CLOSE,
 ];
 
+/// Launch and web option descriptions for the unified binary's top-level help.
+pub const LAUNCH_HELP: &[&str] = &[
+    LAUNCH_GUI,
+    LAUNCH_WEB,
+    WEB_BIND,
+    WEB_TOKEN,
+    WEB_ROOT,
+    WEB_LOCAL_ROOTS,
+    WEB_FORGEJO_BASE,
+    WEB_FORGEJO_TOKEN,
+    WEB_GITHUB_API,
+    WEB_GITHUB_TOKEN,
+];
+
 /// Group headings used by the CLI help, in display order.
+pub const GROUP_LAUNCH: &str = "Launch";
+pub const GROUP_WEB: &str = "Web server";
 pub const GROUP_INPUT: &str = "Repository / input";
 pub const GROUP_OUTPUT: &str = "Output";
 pub const GROUP_ARCHIVE: &str = "Archive / compression";

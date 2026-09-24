@@ -4,9 +4,7 @@
 
 use std::path::PathBuf;
 
-use itsulu_repo_sanitizer::sanitizer::{
-    self, ArchiveFormat, Compression, Config, PasswordPolicy, ReportFormat,
-};
+use crate::sanitizer::{self, ArchiveFormat, Compression, Config, PasswordPolicy, ReportFormat};
 use serde::{Deserialize, Serialize};
 
 fn default_true() -> bool {
@@ -268,17 +266,17 @@ fn format_name(format: ArchiveFormat) -> String {
 /// Builds the capability/help view the UI renders from, reusing the shared
 /// registries in the core crate.
 pub fn capabilities_view() -> CapabilitiesView {
-    use itsulu_repo_sanitizer::help as h;
+    use crate::help as h;
 
-    let capabilities = itsulu_repo_sanitizer::CAPABILITIES
+    let capabilities = crate::CAPABILITIES
         .iter()
         .map(|capability| CapabilityView {
             id: capability.id,
             label: capability.label,
             surface: match capability.surface {
-                itsulu_repo_sanitizer::CapabilitySurface::CliGui => "cli_gui",
-                itsulu_repo_sanitizer::CapabilitySurface::CliOnly => "cli_only",
-                itsulu_repo_sanitizer::CapabilitySurface::Internal => "internal",
+                crate::CapabilitySurface::CliGui => "cli_gui",
+                crate::CapabilitySurface::CliOnly => "cli_only",
+                crate::CapabilitySurface::Internal => "internal",
             },
         })
         .collect();
@@ -381,7 +379,7 @@ pub fn capabilities_view() -> CapabilitiesView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use itsulu_repo_sanitizer::sanitizer::{compatible_compressions, output_extension};
+    use crate::sanitizer::{compatible_compressions, output_extension};
 
     #[test]
     fn defaults_match_cli_defaults() {

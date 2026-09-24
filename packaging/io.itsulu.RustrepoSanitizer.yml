@@ -2,17 +2,15 @@ app-id: io.itsulu.RustrepoSanitizer
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
-command: rustrepo-sanitizer-gui
+command: Rustrepo-sanitizer
 finish-args:
   - --filesystem=host
 modules:
   - name: rustrepo-sanitizer
     buildsystem: simple
     build-commands:
-      - cargo build --release --locked --bin itsulu-repo-sanitizer
-      - cargo build --release --locked --features gui --bin rustrepo-sanitizer-gui
-      - install -Dm755 target/release/itsulu-repo-sanitizer /app/bin/itsulu-repo-sanitizer
-      - install -Dm755 target/release/rustrepo-sanitizer-gui /app/bin/rustrepo-sanitizer-gui
+      - cargo build --release --locked --features gui,web --bin Rustrepo-sanitizer
+      - install -Dm755 target/release/Rustrepo-sanitizer /app/bin/Rustrepo-sanitizer
       - install -Dm644 packaging/io.itsulu.RustrepoSanitizer.desktop /app/share/applications/io.itsulu.RustrepoSanitizer.desktop
       - install -Dm644 assets/rustrepo-sanitizer.svg /app/share/icons/hicolor/scalable/apps/io.itsulu.RustrepoSanitizer.svg
     sources:

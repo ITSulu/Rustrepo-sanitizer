@@ -10,7 +10,7 @@ command -v gdbus >/dev/null
 command -v xdotool >/dev/null
 command -v xprop >/dev/null
 cargo test --test gui_xa11y --no-run
-cargo build --features gui --bin rustrepo-sanitizer-gui
+cargo build --no-default-features --features gui --bin Rustrepo-sanitizer
 test_bin=$(ls -t target/debug/deps/gui_xa11y-* 2>/dev/null | grep -v '\.d$' | head -n 1)
 test -n "$test_bin"
 status_path=/org/a11y/bus
@@ -38,7 +38,7 @@ sleep 1
 AT_SPI_BUS="$accessibility_bus" /usr/lib/at-spi2-registryd --dbus-name=org.a11y.atspi.Registry >/tmp/rustrepo-atspi-registry.log 2>&1 &
 registry_pid=$!
 sleep 1
-setsid target/debug/rustrepo-sanitizer-gui >/tmp/rustrepo-sanitizer-gui.log 2>&1 &
+setsid target/debug/Rustrepo-sanitizer --gui >/tmp/rustrepo-sanitizer.log 2>&1 &
 gui_pid=$!
 window_id=""
 for attempt in {1..20}; do
@@ -56,7 +56,7 @@ if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
     if [[ -z "$window_id" ]]; then
         echo "native GUI window was not discoverable" >&2
         echo "GUI startup log:" >&2
-        cat /tmp/rustrepo-sanitizer-gui.log >&2 || true
+        cat /tmp/rustrepo-sanitizer.log >&2 || true
         exit 1
     fi
     xdotool windowsize "$window_id" 640 540

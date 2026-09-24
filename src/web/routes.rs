@@ -15,12 +15,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio_util::io::ReaderStream;
 
-use crate::dto::{self, InputSpec, OptionsDto};
-use crate::integrations::{validate_component, IntegrationsError};
-use crate::jobs::{self, JobView};
-use crate::security::safe_output_name;
-use crate::state::AppState;
-use crate::ui::{App, FormValues};
+use crate::web::dto::{self, InputSpec, OptionsDto};
+use crate::web::integrations::{validate_component, IntegrationsError};
+use crate::web::jobs::{self, JobView};
+use crate::web::security::safe_output_name;
+use crate::web::state::AppState;
+use crate::web::ui::{App, FormValues};
 
 #[derive(Deserialize)]
 pub struct CreateJobRequest {
@@ -82,15 +82,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 /// secret is needed: possession of the cookie is equivalent to the token.
 fn session_value(token: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"rustrepo-sanitizer-web-session:");
+    hasher.update(b"Rustrepo-sanitizer-session:");
     hasher.update(token.as_bytes());
     hex::encode(hasher.finalize())
 }
 
-fn session_cookie(token: &str) -> String {
+fn session_cookie(token: &str, secure: bool) -> String {
     format!(
-        "rrs_session={}; HttpOnly; SameSite=Strict; Path=/",
-        session_value(token)
+        "rrs_session={}; HttpOnly; SameSite=Strict; Path=/{}",
+        session_value(token),
+        if secure { "; Secure" } else { "" }
     )
 }
 
@@ -151,7 +152,10 @@ async fn ui_login(State(state): State<Arc<AppState>>, mut multipart: Multipart) 
         Response::builder()
             .status(StatusCode::SEE_OTHER)
             .header(header::LOCATION, "/")
-            .header(header::SET_COOKIE, session_cookie(token))
+            .header(
+                header::SET_COOKIE,
+                session_cookie(token, state.secure_cookies),
+            )
             .body(Body::empty())
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
     } else {
@@ -226,7 +230,7 @@ fn validate_request(request: &CreateJobRequest) -> Result<(), String> {
             return Err("repository path must not be empty".into())
         }
         InputSpec::GitUrl { url } => {
-            crate::security::validate_git_url(url).map_err(|err| err.to_string())?;
+            crate::web::security::validate_git_url(url).map_err(|err| err.to_string())?;
         }
         InputSpec::Upload { upload_id } if upload_id.trim().is_empty() => {
             return Err("upload id must not be empty".into())
@@ -262,7 +266,7 @@ async fn upload(State(state): State<Arc<AppState>>, multipart: Multipart) -> Res
 async fn stream_upload_field(
     state: &AppState,
     mut field: axum::extract::multipart::Field<'_>,
-) -> anyhow::Result<crate::uploads::UploadEntry> {
+) -> anyhow::Result<crate::web::uploads::UploadEntry> {
     if state.uploads.is_full() {
         anyhow::bail!("upload store is full");
     }
@@ -277,7 +281,7 @@ async fn stream_upload_field(
 async fn read_upload(
     state: &AppState,
     mut multipart: Multipart,
-) -> anyhow::Result<Option<crate::uploads::UploadEntry>> {
+) -> anyhow::Result<Option<crate::web::uploads::UploadEntry>> {
     while let Some(field) = multipart.next_field().await? {
         if field.name() == Some("file") {
             return Ok(Some(stream_upload_field(state, field).await?));
@@ -668,7 +672,7 @@ async fn ui_download_report(
 fn repo_list_page(
     title: &str,
     configured: bool,
-    repos: &[crate::integrations::RepoSummary],
+    repos: &[crate::web::integrations::RepoSummary],
 ) -> Response {
     let mut html = String::from(
         "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>",
@@ -748,7 +752,7 @@ pub fn bearer(headers: &HeaderMap) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use itsulu_repo_sanitizer::sanitizer::{ArchiveFormat, Compression, ReportFormat};
+    use crate::sanitizer::{ArchiveFormat, Compression, ReportFormat};
 
     fn fields(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs

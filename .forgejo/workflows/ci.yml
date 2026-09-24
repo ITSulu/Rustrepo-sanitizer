@@ -14,7 +14,7 @@ env:
 jobs:
   quality:
     runs-on: garuda-16
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -22,23 +22,27 @@ jobs:
           components: rustfmt, clippy
       - run: apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev
       - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace --all-features
-      - run: cargo check --features gui --bin rustrepo-sanitizer-gui
-      - run: cargo build -p itsulu-repo-sanitizer-web
+      # The unified binary links Slint, Leptos/Axum, and reqwest; a cold build
+      # needs a generous timeout on the single-runner pool.
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-features
+      - run: cargo build --bin Rustrepo-sanitizer
 
   stable-check:
     runs-on: garuda-16
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
-      - run: cargo check --workspace --all-features
-      - run: cargo check --features gui --bin rustrepo-sanitizer-gui
+      - run: apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev
+      - run: cargo check --all-features
+      - run: cargo check --no-default-features
+      - run: cargo check --no-default-features --features gui
+      - run: cargo check --no-default-features --features web
 
   gui-xa11y:
     runs-on: garuda-16
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
@@ -47,10 +51,11 @@ jobs:
 
   security-release:
     runs-on: garuda-16
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/dtolnay/rust-toolchain@stable
+      - run: apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev
       - run: cargo install cargo-auditable --locked
       - run: cargo auditable build --release
       - run: cargo install cargo-audit --locked

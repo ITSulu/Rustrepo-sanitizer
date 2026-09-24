@@ -2,9 +2,9 @@
 source: tests/cli_help.rs
 expression: stdout
 ---
-Create a safe AI review archive from a Git repository
+Sanitize Git repositories for safe AI review (CLI, desktop GUI, and web UI)
 
-Usage: itsulu-repo-sanitizer <COMMAND>
+Usage: Rustrepo-sanitizer [OPTIONS] [COMMAND]
 
 Commands:
   sanitize      Create a sanitized, reproducible review bundle from a Git repository
@@ -14,3 +14,17 @@ Commands:
 Options:
   -h, --help     Print help
   -V, --version  Print version
+
+Launch:
+      --gui  Start the desktop GUI.
+      --web  Start the web UI and HTTP API.
+
+Web server:
+      --web-bind <ADDR>            Web bind address, for example 127.0.0.1:8787.
+      --web-token <TOKEN>          Require this bearer token for /api and the web UI login.
+      --web-root <DIR>             Directory for web job workspaces and uploads.
+      --web-local-roots <PATHS>    Colon-separated roots allowed for the server-local path input.
+      --web-forgejo-base <URL>     Forgejo base URL for the repository selector.
+      --web-forgejo-token <TOKEN>  Forgejo token used server-side for cloning and listing.
+      --web-github-api <URL>       GitHub API base URL for the repository selector.
+      --web-github-token <TOKEN>   GitHub token used server-side for cloning and listing.
