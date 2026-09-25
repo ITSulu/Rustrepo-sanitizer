@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::process::Command;
 
 use itsulu_repo_sanitizer::help;
+use itsulu_repo_sanitizer::size::parse_size as parse_max_file_size;
 
 fn run(args: &[&str]) -> (i32, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_Rustrepo-sanitizer"))
@@ -153,6 +154,43 @@ fn help_stays_readable_at_normal_terminal_widths() {
     assert!(
         widest <= 100,
         "help lines must not exceed a normal terminal width (widest was {widest})"
+    );
+}
+
+#[test]
+fn max_file_size_accepts_binary_units() {
+    for (input, expected) in [
+        ("512", 512u64),
+        ("1KiB", 1024),
+        ("2MiB", 2 * 1024 * 1024),
+        ("1GiB", 1024 * 1024 * 1024),
+    ] {
+        let parsed = parse_max_file_size(input)
+            .unwrap_or_else(|e| panic!("{input}: {e}"))
+            .bytes();
+        assert_eq!(parsed, expected, "for {input}");
+    }
+}
+
+#[test]
+fn max_file_size_rejects_invalid_units() {
+    for bad in ["", "10MB", "abc", "10 MiB extra"] {
+        assert!(parse_max_file_size(bad).is_err(), "{bad} must be rejected");
+    }
+}
+
+#[test]
+fn help_documents_binary_size_syntax() {
+    let (code, stdout, _) = run(&["sanitize", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("KiB") && stdout.contains("MiB") && stdout.contains("GiB"),
+        "sanitize help must document binary size units"
+    );
+    let text = normalize(&stdout);
+    assert!(
+        text.contains("Maximum file size; accepts plain bytes or KiB/MiB/GiB"),
+        "help must describe the size syntax"
     );
 }
 
