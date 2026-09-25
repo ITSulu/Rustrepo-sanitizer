@@ -18,6 +18,9 @@ jobs:
     timeout-minutes: 150
     strategy:
       fail-fast: false
+      # The Garuda runners are 8-core hosts with limited RAM; running all six
+      # cross-builds at once exhausts memory and the jobs get killed mid-compile.
+      max-parallel: 2
       matrix:
         include:
           - { name: linux-glibc-x86_64, target: x86_64-unknown-linux-gnu, platform: linux-glibc, arch: x86_64 }
