@@ -4,6 +4,7 @@
 pub mod help;
 pub mod sanitizer;
 pub mod security;
+pub mod size;
 
 #[cfg(feature = "gui")]
 pub mod gui;
