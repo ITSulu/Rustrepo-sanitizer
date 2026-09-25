@@ -14,12 +14,7 @@ async fn index_html() -> String {
     let root = tempfile::tempdir().unwrap();
     let state = AppState::for_tests(root.path());
     let response = build_router(Arc::new(state))
-        .oneshot(
-            Request::builder()
-                .uri("/")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
@@ -58,15 +53,22 @@ async fn repository_sources_and_branch_field_are_present() {
     let github_at = html
         .find("id=\"github-repo\"")
         .expect("github repository field");
-    let branch_at = html
-        .find("id=\"git-ref\"")
-        .expect("branch or tag field");
+    let branch_at = html.find("id=\"git-ref\"").expect("branch or tag field");
     assert!(path_at < forgejo_at, "Forgejo field must follow local path");
-    assert!(forgejo_at < github_at, "GitHub field must follow Forgejo field");
+    assert!(
+        forgejo_at < github_at,
+        "GitHub field must follow Forgejo field"
+    );
     assert!(github_at < branch_at, "branch/tag field must come last");
     // Each field is grouped in its own row.
-    assert!(html.contains("id=\"forgejo-row\""), "Forgejo needs its own row");
-    assert!(html.contains("id=\"branch-row\""), "branch needs its own row");
+    assert!(
+        html.contains("id=\"forgejo-row\""),
+        "Forgejo needs its own row"
+    );
+    assert!(
+        html.contains("id=\"branch-row\""),
+        "branch needs its own row"
+    );
 }
 
 #[tokio::test]
@@ -149,7 +151,10 @@ async fn top_navigation_offers_sanitize_and_option_reference() {
         "Option Reference nav entry"
     );
     assert!(html.contains("id=\"sanitize\""), "Sanitize section");
-    assert!(html.contains("id=\"option-reference\""), "Option Reference section");
+    assert!(
+        html.contains("id=\"option-reference\""),
+        "Option Reference section"
+    );
 }
 
 #[tokio::test]
@@ -175,14 +180,31 @@ async fn option_reference_fields_have_hover_tooltips() {
 #[tokio::test]
 async fn filters_offer_common_globs_and_an_add_button() {
     let html = index_html().await;
-    assert!(html.contains("id=\"include-choice\""), "include preset dropdown");
-    assert!(html.contains("id=\"exclude-choice\""), "exclude preset dropdown");
+    assert!(
+        html.contains("id=\"include-choice\""),
+        "include preset dropdown"
+    );
+    assert!(
+        html.contains("id=\"exclude-choice\""),
+        "exclude preset dropdown"
+    );
     assert!(html.contains("id=\"include-add\""), "include Add button");
     assert!(html.contains("id=\"exclude-add\""), "exclude Add button");
-    assert!(html.contains("id=\"include-entry\""), "custom include entry");
-    assert!(html.contains("id=\"exclude-entry\""), "custom exclude entry");
+    assert!(
+        html.contains("id=\"include-entry\""),
+        "custom include entry"
+    );
+    assert!(
+        html.contains("id=\"exclude-entry\""),
+        "custom exclude entry"
+    );
     // Presets mirror the desktop GUI options.
-    for glob in ["docs/**/*.md", "src/**/*.rs", "target/**", "node_modules/**"] {
+    for glob in [
+        "docs/**/*.md",
+        "src/**/*.rs",
+        "target/**",
+        "node_modules/**",
+    ] {
         assert!(html.contains(glob), "missing common glob: {glob}");
     }
 }
@@ -194,7 +216,10 @@ async fn dropdown_options_are_readable_in_both_themes() {
         html.contains("option,") || html.contains("option {"),
         "options need explicit colors"
     );
-    assert!(html.contains("color-scheme"), "color scheme must be declared");
+    assert!(
+        html.contains("color-scheme"),
+        "color scheme must be declared"
+    );
     assert!(
         html.contains("select option"),
         "select options must be styled so unselected entries stay readable"

@@ -468,11 +468,12 @@ fn parse_options(fields: &HashMap<String, String>) -> OptionsDto {
     options.fail_on_secret = fields.contains_key("fail_on_secret");
     options.dry_run = fields.contains_key("dry_run");
     options.timestamp_name = fields.contains_key("timestamp_name");
-    if let Some(size) = fields.get("max_file_size").and_then(|v| v.parse().ok()) {
-        options.max_file_size = size;
-    }
+    options.max_file_size = crate::web::ui::submitted_max_file_size(fields).2;
     options.includes = split_lines(fields.get("includes"));
     options.excludes = split_lines(fields.get("excludes"));
+    // The dropdown/entry pairs append to any globs already selected.
+    options.includes = merge_glob_fields(options.includes, fields, "include");
+    options.excludes = merge_glob_fields(options.excludes, fields, "exclude");
     options.password = fields
         .get("password")
         .filter(|value| !value.is_empty())
@@ -505,6 +506,35 @@ fn split_lines(value: Option<&String>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Appends the pattern chosen in a preset dropdown or typed into the custom
+/// entry, mirroring the desktop GUI's preset-plus-custom glob behavior.
+fn merge_glob_fields(
+    mut globs: Vec<String>,
+    fields: &HashMap<String, String>,
+    kind: &str,
+) -> Vec<String> {
+    let entry_key = format!("{kind}_entry");
+    let choice_key = format!("{kind}_choice");
+    let candidate = fields
+        .get(&entry_key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            fields
+                .get(&choice_key)
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        });
+    if let Some(candidate) = candidate {
+        if !globs.contains(&candidate) {
+            globs.push(candidate);
+        }
+    }
+    globs
 }
 
 fn parse_owner_name(value: Option<&String>) -> Option<(String, String)> {

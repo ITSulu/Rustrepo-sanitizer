@@ -194,6 +194,53 @@ fn each_control_maps_to_the_intended_description() {
 }
 
 #[test]
+fn maximum_file_size_has_a_unit_selector_and_label() {
+    assert!(
+        UI.contains("id=\"max-file-size-unit\""),
+        "the GUI needs a Maximum file size unit selector"
+    );
+    for unit in ["KiB", "MiB", "GiB"] {
+        assert!(
+            UI.contains(&format!("\"{unit}\"")),
+            "GUI unit option missing: {unit}"
+        );
+    }
+    assert!(
+        UI.contains("\"Maximum File Size\""),
+        "the GUI label must use title case"
+    );
+}
+
+#[test]
+fn gui_offers_every_repository_source_with_a_branch_field() {
+    for label in [
+        "\"Local Path\"",
+        "\"Git URL\"",
+        "\"Forgejo Repository\"",
+        "\"GitHub Repository\"",
+        "\"Branch Or Tag\"",
+    ] {
+        assert!(UI.contains(label), "missing GUI source label: {label}");
+    }
+    assert!(
+        UI.contains("id=\"repo-source\""),
+        "the GUI needs a repository source selector"
+    );
+    assert!(
+        UI.contains("id=\"git-ref\""),
+        "the GUI needs a branch or tag field"
+    );
+}
+
+#[test]
+fn gui_input_text_uses_a_readable_light_grey() {
+    assert!(
+        UI.contains("color: #d1d5db") || UI.contains("#d4d4d8") || UI.contains("#cbd5e1"),
+        "input text must be mildly light grey, not black"
+    );
+}
+
+#[test]
 fn accessibility_names_are_forwarded_to_the_wrapped_controls() {
     assert!(
         UI.contains("accessible-id: root.a11y-id;"),
