@@ -35,7 +35,7 @@ pub const COMPRESSION: &str =
 // Include / exclude.
 pub const INCLUDE: &str = "Git-style glob of paths to include; repeat for more patterns.";
 pub const EXCLUDE: &str = "Git-style glob of paths to exclude; repeat for more patterns.";
-pub const MAX_FILE_SIZE: &str = "Skip files larger than this number of bytes.";
+pub const MAX_FILE_SIZE: &str = "Maximum file size; accepts plain bytes or KiB/MiB/GiB.";
 
 // Redaction / sanitization.
 pub const REDACT: &str = "Replace high-confidence secret values with redaction markers.";
