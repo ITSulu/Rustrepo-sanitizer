@@ -229,7 +229,7 @@ fn validate_request(request: &CreateJobRequest) -> Result<(), String> {
         InputSpec::LocalPath { path } if path.trim().is_empty() => {
             return Err("repository path must not be empty".into())
         }
-        InputSpec::GitUrl { url } => {
+        InputSpec::GitUrl { url, .. } => {
             crate::web::security::validate_git_url(url).map_err(|err| err.to_string())?;
         }
         InputSpec::Upload { upload_id } if upload_id.trim().is_empty() => {
@@ -446,6 +446,18 @@ async fn ui_health() -> &'static str {
     "ok"
 }
 
+/// Keeps a requested maximum file size inside a usable range.
+///
+/// A client-supplied limit is never trusted: a value beyond the largest allowed
+/// repository would disable the size filter entirely, and zero would exclude
+/// every file, so both ends are clamped.
+fn clamp_max_file_size(bytes: u64) -> u64 {
+    bytes.clamp(1, MAX_ALLOWED_FILE_SIZE)
+}
+
+/// The largest maximum-file-size the web UI will accept, in bytes.
+const MAX_ALLOWED_FILE_SIZE: u64 = 64 * 1024 * 1024 * 1024;
+
 fn parse_options(fields: &HashMap<String, String>) -> OptionsDto {
     let mut options = OptionsDto::default();
     if let Some(format) = fields.get("format") {
@@ -468,11 +480,12 @@ fn parse_options(fields: &HashMap<String, String>) -> OptionsDto {
     options.fail_on_secret = fields.contains_key("fail_on_secret");
     options.dry_run = fields.contains_key("dry_run");
     options.timestamp_name = fields.contains_key("timestamp_name");
-    if let Some(size) = fields.get("max_file_size").and_then(|v| v.parse().ok()) {
-        options.max_file_size = size;
-    }
+    options.max_file_size = clamp_max_file_size(crate::web::ui::submitted_max_file_size(fields).2);
     options.includes = split_lines(fields.get("includes"));
     options.excludes = split_lines(fields.get("excludes"));
+    // The dropdown/entry pairs append to any globs already selected.
+    options.includes = merge_glob_fields(options.includes, fields, "include");
+    options.excludes = merge_glob_fields(options.excludes, fields, "exclude");
     options.password = fields
         .get("password")
         .filter(|value| !value.is_empty())
@@ -505,6 +518,35 @@ fn split_lines(value: Option<&String>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Appends the pattern chosen in a preset dropdown or typed into the custom
+/// entry, mirroring the desktop GUI's preset-plus-custom glob behavior.
+fn merge_glob_fields(
+    mut globs: Vec<String>,
+    fields: &HashMap<String, String>,
+    kind: &str,
+) -> Vec<String> {
+    let entry_key = format!("{kind}_entry");
+    let choice_key = format!("{kind}_choice");
+    let candidate = fields
+        .get(&entry_key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            fields
+                .get(&choice_key)
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        });
+    if let Some(candidate) = candidate {
+        if !globs.contains(&candidate) {
+            globs.push(candidate);
+        }
+    }
+    globs
 }
 
 fn parse_owner_name(value: Option<&String>) -> Option<(String, String)> {
@@ -565,6 +607,7 @@ async fn ui_create_job(State(state): State<Arc<AppState>>, mut multipart: Multip
         }),
         "git_url" => Some(InputSpec::GitUrl {
             url: fields.get("url").cloned().unwrap_or_default(),
+            git_ref: git_ref.clone(),
         }),
         "upload" => upload_id
             .clone()
@@ -751,6 +794,63 @@ pub fn bearer(headers: &HeaderMap) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn requested_max_file_size_is_clamped_to_a_usable_range() {
+        // A client-supplied limit is never trusted.
+        assert_eq!(super::clamp_max_file_size(0), 1);
+        assert_eq!(super::clamp_max_file_size(2048), 2048);
+        assert_eq!(
+            super::clamp_max_file_size(u64::MAX),
+            super::MAX_ALLOWED_FILE_SIZE
+        );
+    }
+
+    #[test]
+    fn a_submitted_size_beyond_the_maximum_is_rejected_by_clamping() {
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("max_file_size_bytes".to_owned(), u64::MAX.to_string());
+        let options = super::parse_options(&fields);
+        assert_eq!(options.max_file_size, super::MAX_ALLOWED_FILE_SIZE);
+    }
+
+    #[test]
+    fn a_zero_size_still_packs_files() {
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("max_file_size_bytes".to_owned(), "0".to_owned());
+        let options = super::parse_options(&fields);
+        assert_eq!(options.max_file_size, 1);
+    }
+
+    #[test]
+    fn glob_presets_and_custom_entries_are_appended() {
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("includes".to_owned(), "src/**\n".to_owned());
+        fields.insert("include_choice".to_owned(), "docs/**".to_owned());
+        fields.insert("excludes".to_owned(), "target/**\n".to_owned());
+        fields.insert("exclude_entry".to_owned(), "*.log".to_owned());
+        let options = super::parse_options(&fields);
+        assert_eq!(options.includes, vec!["src/**", "docs/**"]);
+        assert_eq!(options.excludes, vec!["target/**", "*.log"]);
+    }
+
+    #[test]
+    fn a_repeated_glob_is_not_added_twice() {
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("includes".to_owned(), "src/**\n".to_owned());
+        fields.insert("include_choice".to_owned(), "src/**".to_owned());
+        let options = super::parse_options(&fields);
+        assert_eq!(options.includes, vec!["src/**"]);
+    }
+
+    #[test]
+    fn a_typed_entry_takes_precedence_over_the_dropdown() {
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("include_choice".to_owned(), "docs/**".to_owned());
+        fields.insert("include_entry".to_owned(), "custom/**".to_owned());
+        let options = super::parse_options(&fields);
+        assert_eq!(options.includes, vec!["custom/**"]);
+    }
+
     use super::*;
     use crate::sanitizer::{ArchiveFormat, Compression, ReportFormat};
 

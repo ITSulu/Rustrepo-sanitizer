@@ -168,6 +168,9 @@ pub enum InputSpec {
     },
     GitUrl {
         url: String,
+        /// Optional branch or tag to check out instead of the default branch.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        git_ref: Option<String>,
     },
     Upload {
         upload_id: String,

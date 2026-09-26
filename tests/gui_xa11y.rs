@@ -14,7 +14,7 @@ fn discovers_slint_controls_semantically() {
         .find(|app| app.name.to_ascii_lowercase().contains("rustrepo"))
         .expect("Slint application must be discoverable through AT-SPI");
     assert!(app.name.to_ascii_lowercase().contains("rustrepo"));
-    app.locator(r##"text_field[name="Repository path"]"##)
+    app.locator(r##"text_field[name="Local path"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("repository input must be semantically discoverable");
     app.locator(r##"button[name="Browse for repository"]"##)
@@ -59,7 +59,7 @@ fn discovers_slint_controls_semantically() {
     include_glob
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("Include Glob editor must be semantically discoverable");
-    app.locator(r##"button[name="Add"]"##)
+    app.locator(r##"button[name="Add include glob"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("Glob Add controls must be semantically discoverable");
     app.locator(r##"check_box[name="Advanced options"]"##)

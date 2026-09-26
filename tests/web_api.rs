@@ -903,8 +903,12 @@ async fn ssr_ui_covers_every_cli_and_gui_capability() {
         "id=\"timestamp_name\"",
         "id=\"include_untracked\"",
         // filters
-        "id=\"includes\"",
-        "id=\"excludes\"",
+        "id=\"include-choice\"",
+        "id=\"include-entry\"",
+        "id=\"include-add\"",
+        "id=\"exclude-choice\"",
+        "id=\"exclude-entry\"",
+        "id=\"exclude-add\"",
         // redaction
         "id=\"redact\"",
         "id=\"fail_on_secret\"",

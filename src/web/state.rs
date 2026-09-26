@@ -140,6 +140,17 @@ impl AppState {
         state.secure_cookies = !settings.bind.ip().is_loopback();
         Ok(state)
     }
+
+    /// Builds an isolated state rooted at `root` for tests, using the same
+    /// defaults and in-process collaborators as the real server.
+    pub fn for_tests(root: &std::path::Path) -> Self {
+        let settings = WebSettings {
+            root: root.to_path_buf(),
+            local_roots: vec![root.to_path_buf()],
+            ..WebSettings::default()
+        };
+        Self::from_settings(&settings).expect("test state builds")
+    }
 }
 
 /// Default bind address: loopback only, so the trust boundary is explicit.

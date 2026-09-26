@@ -102,7 +102,8 @@ struct SanitizeArgs {
     exclude: Vec<String>,
     #[arg(
         long = "max-file-size",
-        default_value_t = 10 * 1024 * 1024,
+        default_value = "10MiB",
+        value_parser = parse_max_file_size_arg,
         help = help::MAX_FILE_SIZE,
         help_heading = help::GROUP_FILTERS
     )]
@@ -198,6 +199,13 @@ enum CliReportFormat {
     Markdown,
     Json,
     None,
+}
+
+/// Accepts plain bytes or a binary unit (`2MiB`) for `--max-file-size`.
+fn parse_max_file_size_arg(input: &str) -> Result<u64, String> {
+    itsulu_repo_sanitizer::size::parse_size(input)
+        .map(|size| size.bytes())
+        .map_err(|error| error.to_string())
 }
 
 fn main() -> ExitCode {
@@ -427,11 +435,13 @@ fn run_sanitize(args: SanitizeArgs) -> ExitCode {
     match run(config) {
         Ok(summary) => {
             if !summary.quiet {
+                let limit = itsulu_repo_sanitizer::size::Size::from_bytes(args.max_file_size);
                 println!(
-                    "sanitized {} files ({} excluded, {} redactions){}",
+                    "sanitized {} files ({} excluded, {} redactions, max file size {}){}",
                     summary.included,
                     summary.excluded,
                     summary.redactions,
+                    limit,
                     if summary.dry_run { "; dry run" } else { "" }
                 );
             }
