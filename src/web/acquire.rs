@@ -413,6 +413,82 @@ mod tests {
         }
     }
 
+    /// Records the git invocation so a test can assert on the branch argument.
+    struct RecordingRunner {
+        seen: Arc<std::sync::Mutex<Vec<Vec<String>>>>,
+    }
+
+    impl CloneRunner for RecordingRunner {
+        fn clone(
+            &self,
+            argv: Vec<String>,
+            _env: Vec<(String, String)>,
+            _dest: PathBuf,
+        ) -> BoxFuture<'static, Result<(), String>> {
+            self.seen.lock().unwrap().push(argv);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    fn recording_acquirer(
+        allowed: Vec<String>,
+        resolver: Arc<PublicResolver>,
+    ) -> (Acquirer, Arc<std::sync::Mutex<Vec<Vec<String>>>>) {
+        let root = tempfile::tempdir().unwrap();
+        let uploads = Arc::new(UploadStore::new(root.path().join("uploads")).unwrap());
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let acq = Acquirer {
+            runner: Arc::new(RecordingRunner { seen: seen.clone() }),
+            resolver,
+            uploads,
+            integrations: Arc::new(Integrations::new(IntegrationsConfig::default())),
+            allowed_local_roots: allowed,
+            max_repo_bytes: 1024 * 1024,
+            extraction_budget: crate::web::security::ExtractionBudget::default(),
+        };
+        (acq, seen)
+    }
+
+    #[tokio::test]
+    async fn git_url_mode_passes_the_requested_branch_to_git() {
+        let (acq, seen) = recording_acquirer(vec![], Arc::new(PublicResolver));
+        let dest = tempfile::tempdir().unwrap();
+        acq.acquire(
+            &InputSpec::GitUrl {
+                url: "https://git.example.com/org/repo.git".into(),
+                git_ref: Some("release-1.2".into()),
+            },
+            dest.path(),
+        )
+        .await
+        .expect("clone is requested");
+        let calls = seen.lock().unwrap();
+        let argv = calls.first().expect("git was invoked");
+        let branch = argv
+            .windows(2)
+            .find(|pair| pair[0] == "--branch")
+            .map(|pair| pair[1].clone());
+        assert_eq!(branch.as_deref(), Some("release-1.2"));
+    }
+
+    #[tokio::test]
+    async fn git_url_mode_omits_the_branch_when_none_is_requested() {
+        let (acq, seen) = recording_acquirer(vec![], Arc::new(PublicResolver));
+        let dest = tempfile::tempdir().unwrap();
+        acq.acquire(
+            &InputSpec::GitUrl {
+                url: "https://git.example.com/org/repo.git".into(),
+                git_ref: None,
+            },
+            dest.path(),
+        )
+        .await
+        .expect("clone is requested");
+        let calls = seen.lock().unwrap();
+        let argv = calls.first().expect("git was invoked");
+        assert!(!argv.iter().any(|arg| arg == "--branch"));
+    }
+
     struct PrivateResolver;
     impl HostResolver for PrivateResolver {
         fn resolve(&self, _host: String) -> BoxFuture<'static, Result<Vec<IpAddr>, String>> {
