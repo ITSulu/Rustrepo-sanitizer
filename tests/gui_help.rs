@@ -25,22 +25,78 @@ fn help_strings(source: &str) -> BTreeSet<String> {
 
 /// Every user-facing control in `ui/main.slint` must be a Helpful* variant
 /// carrying a non-empty help string.
+///
+/// Controls are matched on their whole brace-balanced block, because several
+/// declare `help:` on a later line than the one that opens the control.
 fn control_lines_without_help(source: &str) -> Vec<String> {
-    const CONTROLS: [&str; 5] = [
+    let mut missing = Vec::new();
+    for block in split_slint_blocks(source) {
+        if !block.contains("help: \"") {
+            missing.push(block.lines().next().unwrap_or_default().trim().to_owned());
+        }
+    }
+    missing
+}
+
+/// Returns the brace-balanced block of every control element in a Slint file.
+///
+/// A control declaration is located by its type name, then the block runs from
+/// that declaration's opening brace to its matching close. This is independent
+/// of line layout, so controls declared inline after a sibling still match.
+fn split_slint_blocks(source: &str) -> Vec<&str> {
+    const CONTROL_TYPES: [&str; 5] = [
         "HelpfulButton",
         "HelpfulCheckBox",
         "HelpfulComboBox",
         "HelpfulLineEdit",
         "HelpfulLabel",
     ];
-    source
-        .lines()
-        .filter(|line| !line.contains("component "))
-        .filter(|line| CONTROLS.iter().any(|control| line.contains(control)))
-        .filter(|line| !line.contains("help:"))
-        .map(str::trim)
-        .map(str::to_owned)
-        .collect()
+    let bytes = source.as_bytes();
+    let mut blocks = Vec::new();
+    let mut search = 0usize;
+    loop {
+        // Find the next occurrence of any control type in one forward pass.
+        let mut next: Option<(usize, &str)> = None;
+        for name in CONTROL_TYPES {
+            if let Some(at) = source[search..].find(name) {
+                let at = search + at;
+                if next.is_none_or(|(best, _)| at < best) {
+                    next = Some((at, name));
+                }
+            }
+        }
+        let Some((at, name)) = next else { break };
+        let name_end = at + name.len();
+        // Skip component *definitions*, which declare the wrapper types.
+        if source[..at].ends_with("component ") {
+            search = name_end;
+            continue;
+        }
+        let Some(open) = source[name_end..].find('{') else {
+            break;
+        };
+        let open = name_end + open;
+        let mut depth = 0usize;
+        let mut cursor = open;
+        while cursor < bytes.len() {
+            match bytes[cursor] {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            cursor += 1;
+        }
+        let end = (cursor + 1).min(bytes.len());
+        blocks.push(&source[at..end]);
+        // Continue after this control name so nested controls are also found.
+        search = name_end;
+    }
+    blocks
 }
 
 #[test]
@@ -125,9 +181,15 @@ fn field_value<'a>(line: &'a str, name: &str) -> Option<&'a str> {
 #[test]
 fn each_control_maps_to_the_intended_description() {
     use itsulu_repo_sanitizer::help;
-    let expected: BTreeSet<(&str, &str)> = [
-        ("Repository label", help::REPOSITORY),
-        ("Repository path", help::REPOSITORY),
+    let expected: Vec<(&str, &str)> = [
+        ("Repository source label", help::REPO_SOURCE),
+        ("Local path", help::REPOSITORY),
+        ("Repository source", help::REPO_SOURCE),
+        ("Git URL", help::GIT_URL_FIELD),
+        ("Forgejo repository", help::FORGEJO_REPO),
+        ("GitHub repository", help::GITHUB_REPO),
+        ("Branch or tag", help::GIT_REF),
+        ("Maximum file size unit", help::SIZE_UNIT),
         ("Browse for repository", help::BROWSE_REPOSITORY),
         ("Output file label", help::OUTPUT),
         ("Output file path", help::OUTPUT),
@@ -149,13 +211,13 @@ fn each_control_maps_to_the_intended_description() {
         ("Include glob label", help::INCLUDE_GLOB_LABEL),
         ("Common include glob patterns", help::INCLUDE_GLOB_LABEL),
         ("Custom include glob", help::INCLUDE_ENTRY),
-        ("Add", help::INCLUDE_ADD),
+        ("Add include glob", help::INCLUDE_ADD),
         ("Selected include glob", help::INCLUDE_GLOB_LABEL),
         ("Remove selected include glob", help::INCLUDE_REMOVE),
         ("Exclude glob label", help::EXCLUDE_GLOB_LABEL),
         ("Common exclude glob patterns", help::EXCLUDE_GLOB_LABEL),
         ("Custom exclude glob", help::EXCLUDE_ENTRY),
-        ("Add", help::EXCLUDE_ADD),
+        ("Add exclude glob", help::EXCLUDE_ADD),
         ("Selected exclude glob", help::EXCLUDE_GLOB_LABEL),
         ("Remove selected exclude glob", help::EXCLUDE_REMOVE),
         ("Password label", help::LABEL_PASSWORD),
@@ -176,27 +238,44 @@ fn each_control_maps_to_the_intended_description() {
         ("Close about", help::ABOUT_CLOSE),
     ]
     .into_iter()
-    .collect();
+    .collect::<Vec<_>>();
 
-    let actual: BTreeSet<(&str, &str)> = UI
-        .lines()
-        .filter_map(|line| {
-            let label = field_value(line, "a11y-label")?;
-            let help = field_value(line, "help")?;
-            Some((label, help))
+    // Compared as sorted vectors because a label may legitimately map to more
+    // than one description (for example the two Add buttons).
+    let mut actual: Vec<_> = split_slint_blocks(UI)
+        .iter()
+        .filter_map(|block| {
+            let label = field_value(block, "a11y-label")?;
+            let help = field_value(block, "help")?;
+            Some((label.to_owned(), help.to_owned()))
         })
         .collect();
-
-    assert_eq!(
-        actual, expected,
-        "each accessible control must map to its intended shared description"
-    );
+    let mut expected: Vec<_> = expected
+        .into_iter()
+        .map(|(label, help)| (label.to_owned(), help.to_owned()))
+        .collect();
+    actual.sort();
+    expected.sort();
+    if actual != expected {
+        let unexpected: Vec<_> = actual
+            .iter()
+            .filter(|pair| !expected.contains(pair))
+            .collect();
+        let missing: Vec<_> = expected
+            .iter()
+            .filter(|pair| !actual.contains(pair))
+            .collect();
+        panic!(
+            "control description drift\n  parsed {} controls\n  missing: {missing:#?}\n  unexpected: {unexpected:#?}",
+            actual.len()
+        );
+    }
 }
 
 #[test]
 fn maximum_file_size_has_a_unit_selector_and_label() {
     assert!(
-        UI.contains("id=\"max-file-size-unit\""),
+        UI.contains("a11y-id: \"max-file-size-unit\""),
         "the GUI needs a Maximum file size unit selector"
     );
     for unit in ["KiB", "MiB", "GiB"] {
@@ -223,11 +302,11 @@ fn gui_offers_every_repository_source_with_a_branch_field() {
         assert!(UI.contains(label), "missing GUI source label: {label}");
     }
     assert!(
-        UI.contains("id=\"repo-source\""),
+        UI.contains("a11y-id: \"repo-source\""),
         "the GUI needs a repository source selector"
     );
     assert!(
-        UI.contains("id=\"git-ref\""),
+        UI.contains("a11y-id: \"git-ref\""),
         "the GUI needs a branch or tag field"
     );
 }

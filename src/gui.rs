@@ -32,6 +32,17 @@ fn settings_values_for_policy(
     )
 }
 
+/// Maps the GUI unit selector index onto the shared size unit.
+#[allow(dead_code)]
+fn size_unit(index: i32) -> Option<&'static str> {
+    match index {
+        0 => Some("KiB"),
+        1 => Some("MiB"),
+        2 => Some("GiB"),
+        _ => None,
+    }
+}
+
 #[cfg(feature = "gui")]
 fn refresh_output_extension(window: &MainWindow, format_index: i32, compression_index: i32) {
     use crate::sanitizer::{compression_for_gui_selection, output_extension, ArchiveFormat};
@@ -75,6 +86,22 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(repository) = std::env::var("RRS_GUI_REPOSITORY") {
         window.set_repository_path(repository.into());
     }
+    // The unit selector owns display; Rust resolves value + unit to bytes using
+    // the same shared parser the CLI and web UI use.
+    let size_ui = window.as_weak();
+    window.on_size_edited(move |value| {
+        let Some(window) = size_ui.upgrade() else {
+            return;
+        };
+        let unit = window.get_max_file_size_unit();
+        let Some(unit) = size_unit(unit) else {
+            return;
+        };
+        if let Ok(parsed) = crate::size::parse_size(&format!("{value}{unit}")) {
+            window.set_max_file_size_bytes(parsed.bytes() as i32);
+            window.set_max_file_size(parsed.bytes().to_string().into());
+        }
+    });
     let set_compression_options = |window: &MainWindow, format_index: i32| {
         let format = match format_index {
             1 => ArchiveFormat::Zip,
@@ -363,10 +390,12 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
               timestamp,
               redact,
               fail_secret,
-              max_size,
+              max_size_bytes,
               include,
               exclude,
               password| {
+            // The unit selector already resolved the human value to bytes.
+            let max_size_bytes: u64 = max_size_bytes.max(0) as u64;
             let repo = PathBuf::from(repo.to_string());
             let format = match format_index {
                 1 => ArchiveFormat::Zip,
@@ -413,7 +442,7 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
                 compression,
                 report,
                 include_untracked: untracked,
-                max_file_size: max_size.parse().unwrap_or(10 * 1024 * 1024),
+                max_file_size: max_size_bytes,
                 excludes: exclude
                     .lines()
                     .map(str::trim)
