@@ -141,11 +141,15 @@ test.describe('web UI', () => {
     await page.goto('/');
     const field = page.locator('#option-reference .tip').first();
     const tip = page.locator('#tip-repository');
-    // The dwell time gates the opacity transition, so opacity is the signal.
+    // The dwell time gates the transition, so opacity carries the timing.
     const opacity = () =>
       tip.evaluate((el) => Number(getComputedStyle(el).opacity));
+    // Visibility is the discrete settled state, which does not depend on the
+    // compositor painting intermediate frames as a loaded runner does.
+    const hidden = () =>
+      tip.evaluate((el) => getComputedStyle(el).visibility === 'hidden');
 
-    expect(await opacity()).toBe(0);
+    expect(await hidden()).toBe(true);
 
     // A brief pass is not enough to reveal the help text.
     await field.hover();
@@ -158,9 +162,9 @@ test.describe('web UI', () => {
       .toBeGreaterThan(0.9);
     await expect(tip).toHaveText(/Git repository to sanitize/);
 
-    // Moving away hides it again promptly.
+    // Moving away hides it again.
     await page.mouse.move(700, 3);
-    await expect.poll(() => opacity(), { timeout: 3000 }).toBe(0);
+    await expect.poll(() => hidden(), { timeout: 5000 }).toBe(true);
   });
 
   test('every option reference field carries a one-line tooltip', async ({ page }) => {
