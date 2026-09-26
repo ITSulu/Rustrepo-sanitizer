@@ -52,6 +52,44 @@ Web options are only accepted together with `--web`.
 Integration tokens are only ever sent to the upstream API. They are never
 serialized into a response and never reach the browser.
 
+## Interface
+
+The page is server rendered and works without JavaScript. Two scripts are
+progressive enhancements only: one keeps the maximum file size in step with its
+unit selector, and one drives the include/exclude glob lists. Everything is
+still submitted and resolved server side when scripting is off.
+
+- **Top navigation** moves between the Sanitize form and the Option Reference.
+- **Option Reference** lists every option with a one-line tooltip that appears
+  after a two second hover, matching the desktop GUI's hover help.
+- **Repository Source** offers Server Local Path, Git URL, Uploaded Archive,
+  Forgejo Repository, and GitHub Repository. A Branch Or Tag field sits beside
+  the repository fields and applies to Forgejo, GitHub, and plain Git URLs.
+- **Maximum File Size** in Output is a numeric field with a KiB/MiB/GiB
+  selector. Changing the unit preserves the exact byte count; the form carries
+  the byte-equivalent value, and the server clamps any submitted value to a
+  usable range.
+- **Filters** offer a common-pattern dropdown, an Add button, and a custom
+  pattern field for both include and exclude globs. Each added pattern is
+  listed with a Remove control and submitted as a newline separated value.
+- **Supported Formats** appears inside Output, below Maximum File Size.
+- Repository, path, and tag fields use non-email input semantics with autofill
+  disabled, so browsers do not offer email aliases for them.
+
+### Browser tests
+
+```bash
+npm install
+npx playwright install chromium
+npx playwright test
+```
+
+The suite starts the real binary in web mode with a temporary fixture
+repository. `RRS_TEST_LOCAL=1` runs the local sanitize, download, and filter
+cases; `RRS_TEST_NETWORK=1` additionally clones a public repository to exercise
+real acquisition, branch selection, and unknown-branch rejection. Forgejo runs
+the local subset on the primary runner.
+
 ## Architecture
 
 All modules live under `src/web/`.
