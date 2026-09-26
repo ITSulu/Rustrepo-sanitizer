@@ -288,11 +288,11 @@ test.describe('web UI', () => {
     await page.locator('#mode').selectOption('git_url');
     await page.locator('#url').fill('https://127.0.0.1/secret.git');
     await page.locator('button[type=submit]').click();
-    // The job is created and fails; the reason is surfaced on the job page.
-    await expect(page.locator('.status[data-kind="error"]')).toContainText(
-      /private, loopback, or reserved/i,
-      { timeout: 60000 },
-    );
+    // A literal private address can be refused either while validating the
+    // request (an alert on the form) or when the job runs, so accept both.
+    const rejection = /private, loopback, or reserved/i;
+    await expect(page.locator('#form-error, .status[data-kind="error"]').first())
+      .toContainText(rejection, { timeout: 60000 });
   });
 
   test('is keyboard navigable with a visible focus indicator', async ({ page }) => {
