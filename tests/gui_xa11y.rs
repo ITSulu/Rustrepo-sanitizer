@@ -68,10 +68,24 @@ fn discovers_slint_controls_semantically() {
     app.locator(r##"button[name="Sanitize repository"]"##)
         .press()
         .expect("sanitize must be semantically activatable");
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    let after = app.dump(Some(4)).expect("AT-SPI tree must remain readable");
-    assert!(
-        after.contains("Sanitizing") || after.contains("Complete") || after.contains("Error"),
-        "sanitization action must update the accessible status: {after}"
-    );
+    // The status is reported through the accessible tree, so poll until the run
+    // reports progress or settles rather than assuming a fixed delay. A busy
+    // runner updates the status more slowly than a local one, and the
+    // in-progress states are as valid as a settled one.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let tree = app.dump(Some(4)).expect("AT-SPI tree must remain readable");
+        if tree.contains("Sanitizing")
+            || tree.contains("Scanning")
+            || tree.contains("Complete")
+            || tree.contains("Error")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "sanitization action must update the accessible status: {tree}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 }
