@@ -1,6 +1,6 @@
 [package]
 name = "itsulu-repo-sanitizer"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 description = "Create deterministic, sanitized AI review bundles from Git repositories"
 license = "Apache-2.0"

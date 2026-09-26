@@ -1,10 +1,33 @@
 //! Shared sanitizer core plus the launch frontends used by the unified
 //! `Rustrepo-sanitizer` binary: the CLI, the Slint desktop GUI, and the
 //! Leptos/Axum web UI all consume this one core.
+use std::sync::LazyLock;
+
 pub mod help;
 pub mod sanitizer;
 pub mod security;
 pub mod size;
+
+/// Common glob presets offered by the GUI and web filter dropdowns.
+///
+/// Defined once in `build.rs`, which emits both the Slint array literal (the
+/// Slint UI cannot import from the library) and this list, so the two
+/// interfaces cannot drift apart.
+pub static COMMON_INCLUDE_GLOBS: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| split_globs(env!("RRS_COMMON_INCLUDE_GLOBS_STR")));
+pub static COMMON_EXCLUDE_GLOBS: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| split_globs(env!("RRS_COMMON_EXCLUDE_GLOBS_STR")));
+
+/// The same presets as Slint array literals, for the desktop UI.
+pub const SLINT_INCLUDE_GLOBS: &str = env!("RRS_COMMON_INCLUDE_GLOBS");
+pub const SLINT_EXCLUDE_GLOBS: &str = env!("RRS_COMMON_EXCLUDE_GLOBS");
+
+fn split_globs(list: &'static str) -> Vec<&'static str> {
+    list.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .collect()
+}
 
 #[cfg(feature = "gui")]
 pub mod gui;
@@ -287,9 +310,12 @@ mod tests {
     }
 
     #[test]
-    fn current_release_metadata_targets_0_6_1() {
+    fn current_release_metadata_targets_0_6_2() {
         let manifest = include_str!("../Cargo.toml");
-        assert!(manifest.contains("version = \"0.6.1\""));
+        assert!(manifest.contains("version = \"0.6.2\""));
+        // Every release documents what changed.
+        let changelog = include_str!("../CHANGELOG.md");
+        assert!(changelog.contains("## 0.6.2"));
     }
 
     #[test]
@@ -306,6 +332,9 @@ mod tests {
         assert!(workflow.contains("cargo test --all-features"));
         assert!(workflow.contains("cargo clippy --all-targets --all-features"));
         assert!(workflow.contains("cargo build --bin Rustrepo-sanitizer"));
+        // The browser suite must run in CI, not only locally.
+        assert!(workflow.contains("npx playwright test"));
+        assert!(workflow.contains("runs-on: garuda-16"));
         // Single-interface builds must keep compiling.
         assert!(workflow.contains("cargo check --no-default-features --features gui"));
         assert!(workflow.contains("cargo check --no-default-features --features web"));

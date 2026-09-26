@@ -14,33 +14,14 @@ use crate::size::{self, SizeUnit};
 use crate::web::dto::CapabilitiesView;
 use crate::web::jobs::JobStatus;
 use crate::web::jobs::JobView;
+use crate::{COMMON_EXCLUDE_GLOBS, COMMON_INCLUDE_GLOBS};
 
 /// How long an option-reference tooltip waits before appearing.
 const TOOLTIP_DELAY_MS: u32 = 2000;
 
-const COMMON_INCLUDE_GLOBS: &[&str] = &[
-    "docs/**/*.md",
-    "src/**/*.rs",
-    "tests/**",
-    ".forgejo/**",
-    "target/**",
-    "vendor/**",
-    "*.log",
-];
-
-const COMMON_EXCLUDE_GLOBS: &[&str] = &[
-    "docs/**",
-    "target/**",
-    "vendor/**",
-    "node_modules/**",
-    ".idea/**",
-    "*.log",
-    "*.tmp",
-];
-
 const STYLE: &str = r#"
-:root { color-scheme: light dark; --fg:#111827; --bg:#f8fafc; --card:#ffffff; --accent:#1d4ed8; --border:#cbd5e1; --muted:#475569; --opt-fg:#111827; --opt-bg:#ffffff; }
-@media (prefers-color-scheme: dark) { :root { --fg:#e5e7eb; --bg:#0b1220; --card:#111827; --accent:#93c5fd; --border:#334155; --muted:#94a3b8; --opt-fg:#f1f5f9; --opt-bg:#1e293b; } }
+:root { color-scheme: light dark; --fg:#111827; --bg:#f8fafc; --card:#ffffff; --accent:#1d4ed8; --border:#cbd5e1; --muted:#475569; --opt-fg:#111827; --opt-bg:#ffffff; --accent-fill:#1d4ed8; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e5e7eb; --bg:#0b1220; --card:#111827; --accent:#93c5fd; --border:#64748b; --muted:#94a3b8; --opt-fg:#f1f5f9; --opt-bg:#1e293b; --accent-fill:#1d4ed8; } }
 * { box-sizing: border-box; }
 body { margin:0; font:16px/1.5 system-ui, sans-serif; color:var(--fg); background:var(--bg); }
 a, button, input, select, textarea { font: inherit; }
@@ -51,7 +32,7 @@ header, main, footer { max-width: 72rem; margin: 0 auto; padding: 1rem; }
 h1 { font-size: clamp(1.5rem, 4vw, 2.25rem); }
 nav#nav { display:flex; gap:1rem; border-bottom:1px solid var(--border); padding-bottom:.5rem; margin-bottom:1rem; }
 nav#nav a { text-decoration:none; padding:.35rem .6rem; border-radius:.35rem; }
-nav#nav a[aria-current="page"] { background:var(--accent); color:#fff; }
+nav#nav a[aria-current="page"] { background:var(--accent-fill); color:#fff; }
 fieldset { border:1px solid var(--border); border-radius:.5rem; padding:1rem; margin:0 0 1rem; background:var(--card); }
 legend { font-weight:600; padding:0 .35rem; }
 .grid { display:grid; gap:.75rem 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
@@ -59,13 +40,14 @@ legend { font-weight:600; padding:0 .35rem; }
 .field.inline { flex-direction:row; align-items:center; gap:.5rem; }
 .row { display:grid; gap:.75rem 1rem; grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
 .help { color:var(--muted); font-size:.85rem; }
+.visually-hidden { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 .table-wrap { overflow-x:auto; margin-top:1rem; }
 input[type=text], input[type=url], input[type=password], input[type=number], select, textarea { padding:.5rem; border:1px solid var(--border); border-radius:.35rem; background:var(--card); color:var(--fg); width:100%; }
 select option { background:var(--opt-bg); color:var(--opt-fg); }
 .size-row { display:flex; gap:.5rem; }
 .size-row input[type=number] { flex:1 1 auto; }
 .size-row select { flex:0 0 7rem; }
-button { background:var(--accent); color:#fff; border:0; border-radius:.35rem; padding:.6rem 1.1rem; cursor:pointer; }
+button { background:var(--accent-fill); color:#fff; border:0; border-radius:.35rem; padding:.6rem 1.1rem; cursor:pointer; }
 button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
 .status { border-left:4px solid var(--accent); padding:.75rem 1rem; background:var(--card); margin:1rem 0; }
 .status[data-kind="error"] { border-color:#dc2626; }
@@ -78,7 +60,7 @@ th, td { text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--bor
 .tag-list code { background:var(--card); border:1px solid var(--border); border-radius:.25rem; padding:.1rem .35rem; }
 /* Option-reference tooltips appear only after a deliberate hover. */
 .tip { position:relative; display:inline-block; }
-.tip .tip-text { position:absolute; left:0; top:1.4em; z-index:20; max-width:32rem; padding:.4rem .6rem; border-radius:.35rem; background:var(--fg); color:var(--bg); font-size:.85rem; line-height:1.3; opacity:0; visibility:hidden; transition:opacity .1s linear; transition-delay: 2s; }
+.tip .tip-text { position:absolute; left:0; top:1.4em; z-index:20; width:max-content; max-width:min(32rem, 90vw); white-space:normal; text-wrap:balance; padding:.4rem .6rem; border-radius:.35rem; background:var(--fg); color:var(--bg); font-size:.85rem; line-height:1.3; opacity:0; visibility:hidden; transition:opacity .1s linear; transition-delay: 2s; }
 .tip:hover .tip-text, .tip:focus-within .tip-text { opacity:1; visibility:visible; }
 @media (prefers-reduced-motion: reduce) { .tip .tip-text { transition:none; } }
 @media (max-width: 40rem) { header, main, footer { padding:.75rem; } .grid { grid-template-columns: 1fr; } .row { grid-template-columns: 1fr; } }
@@ -204,6 +186,104 @@ fn glob_options(presets: &[&str]) -> Vec<AnyView> {
     out
 }
 
+/// Progressive enhancement for the maximum file size field.
+///
+/// Keeps the byte-equivalent hidden field in step with the visible value and
+/// unit. The form submits every field, so without scripting the server still
+/// resolves the value with the shared parser.
+const SIZE_SYNC_SCRIPT: &str = r#"
+(function () {
+  var unitBytes = { KiB: 1024, MiB: 1048576, GiB: 1073741824 };
+  var maxBytes = 9007199254740991; // Number.MAX_SAFE_INTEGER
+  var value = document.getElementById('max_file_size');
+  var unit = document.getElementById('max_file_size_unit');
+  var bytes = document.getElementById('max_file_size_bytes');
+  if (!value || !unit || !bytes) { return; }
+  function factor() { return unitBytes[unit.value] || 0; }
+  function sync() {
+    var n = parseFloat(value.value);
+    var f = factor();
+    if (isFinite(n) && n >= 0 && f && n * f <= maxBytes) {
+      bytes.value = String(Math.round(n * f));
+    } else {
+      // Clearing rather than leaving a stale value lets the server fall back to
+      // the visible value and its unit instead of applying the wrong size.
+      bytes.value = '';
+    }
+  }
+  // Rewrites the visible value when the unit changes, preserving the size. The
+  // exact byte count is stored first so a rounded display can never move the
+  // size that is actually applied.
+  function convertUnit() {
+    var n = parseFloat(value.value);
+    var previous = unitBytes[bytes.dataset.previousUnit];
+    var f = factor();
+    if (isFinite(n) && n >= 0 && previous && f) {
+      var exact = Math.min(Math.round(n * previous), maxBytes);
+      bytes.value = String(exact);
+      value.value = String(exact / f);
+    }
+    bytes.dataset.previousUnit = unit.value;
+    sync();
+  }
+  value.addEventListener('input', sync);
+  value.addEventListener('change', sync);
+  unit.addEventListener('change', convertUnit);
+  bytes.dataset.previousUnit = unit.value;
+})();
+"#;
+
+/// Adds the selected or typed pattern to a filter list.
+///
+/// The list is submitted as a newline separated value, which is exactly what
+/// the server parses, so this only mirrors what the Add button means.
+const GLOB_LIST_SCRIPT: &str = r#"
+(function () {
+  function addPattern(kind) {
+    var choice = document.getElementById(kind + '-choice');
+    var entry = document.getElementById(kind + '-entry');
+    var list = document.getElementById(kind + '-list');
+    var hidden = document.getElementById(kind + '-globs');
+    if (!choice || !entry || !list || !hidden) { return; }
+    var pattern = entry.value.trim() || choice.value;
+    if (!pattern) { return; }
+    var current = hidden.value ? hidden.value.split('\n') : [];
+    if (current.indexOf(pattern) === -1) { current.push(pattern); }
+    hidden.value = current.join('\n');
+    render(kind, list, current);
+    entry.value = '';
+    choice.value = '';
+  }
+  function render(kind, list, patterns) {
+    list.textContent = '';
+    patterns.forEach(function (pattern) {
+      var item = document.createElement('li');
+      var code = document.createElement('code');
+      code.textContent = pattern;
+      item.appendChild(code);
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', 'Remove ' + pattern);
+      remove.addEventListener('click', function () {
+        var next = hidden.value.split('\n').filter(function (entry) {
+          return entry && entry !== pattern;
+        });
+        hidden.value = next.join('\n');
+        render(kind, list, next);
+      });
+      item.appendChild(remove);
+      list.appendChild(item);
+    });
+  }
+  ['include', 'exclude'].forEach(function (kind) {
+    var button = document.getElementById(kind + '-add');
+    if (button) { button.addEventListener('click', function () { addPattern(kind); }); }
+  });
+})();
+"#;
+
 #[component]
 pub fn App(
     caps: CapabilitiesView,
@@ -246,6 +326,8 @@ pub fn App(
     let (size_value, size_unit, size_bytes) = submitted_max_file_size(&values);
     let include_globs = split_globs(&text_value(&values, "includes", ""));
     let exclude_globs = split_globs(&text_value(&values, "excludes", ""));
+    let include_globs_value = include_globs.join("\n");
+    let exclude_globs_value = exclude_globs.join("\n");
 
     let mode_opt = |value: &str, label: &str| {
         let selected = chosen_mode == value;
@@ -274,10 +356,10 @@ pub fn App(
                 </header>
                 <main id="main">
                     {error.map(|message| view! {
-                        <p class="status" id="form-error" data-kind="error" role="alert">{message}</p>
+                        <p id="form-error" class=move || "status" data-kind="error" role="alert">{message}</p>
                     })}
                     {flash.map(|message| view! {
-                        <p class="status" data-kind="ok" role="status">{message}</p>
+                        <p class=move || "status" data-kind="ok" role="status">{message}</p>
                     })}
                     {job.map(|job| render_job(&job))}
                     <section id="sanitize" aria-labelledby="form-heading">
@@ -387,7 +469,7 @@ pub fn App(
                                             {caps.formats.iter().map(|format| {
                                                 let name = format.name.clone();
                                                 let compressions = format.compressions.join(", ");
-                                                let password = if format.password_encryption { "yes" } else { "no" };
+                                                let password = if format.password_encryption { "Yes" } else { "No" };
                                                 view! { <tr><td>{name}</td><td>{compressions}</td><td>{password}</td></tr> }
                                             }).collect_view()}
                                         </tbody>
@@ -401,14 +483,16 @@ pub fn App(
                                         <label for="include-choice">"Include Globs"</label>
                                         <div class="size-row">
                                             <select id="include-choice" name="include_choice" aria-describedby="include-glob-help">
-                                                {glob_options(COMMON_INCLUDE_GLOBS)}
+                                                {glob_options(&COMMON_INCLUDE_GLOBS)}
                                             </select>
-                                            <button type="button" id="include-add" class="secondary">"Add"</button>
+                                            <button type="button" id="include-add" class="secondary" aria-label="Add include glob">"Add"</button>
                                         </div>
+                                        <input type="hidden" id="include-globs" name="includes" value=include_globs_value/>
+                                        <label class="visually-hidden" for="include-entry">"Custom Include Pattern"</label>
                                         <input type="text" id="include-entry" name="include_entry" placeholder="Custom pattern" autocomplete="off" spellcheck="false" aria-describedby="include-glob-help"/>
                                         <small class="help" id="include-glob-help">"Only files matching these patterns are packed."</small>
                                         <ul class="tag-list" id="include-list" aria-label="Selected include globs">
-                                            {include_globs.into_iter().map(|glob| {
+                                            {include_globs.iter().map(|glob| {
                                                 let code = glob.clone();
                                                 view! { <li><code>{code}</code></li> }
                                             }).collect_view()}
@@ -418,14 +502,16 @@ pub fn App(
                                         <label for="exclude-choice">"Exclude Globs"</label>
                                         <div class="size-row">
                                             <select id="exclude-choice" name="exclude_choice" aria-describedby="exclude-glob-help">
-                                                {glob_options(COMMON_EXCLUDE_GLOBS)}
+                                                {glob_options(&COMMON_EXCLUDE_GLOBS)}
                                             </select>
-                                            <button type="button" id="exclude-add" class="secondary">"Add"</button>
+                                            <button type="button" id="exclude-add" class="secondary" aria-label="Add exclude glob">"Add"</button>
                                         </div>
+                                        <input type="hidden" id="exclude-globs" name="excludes" value=exclude_globs_value/>
+                                        <label class="visually-hidden" for="exclude-entry">"Custom Exclude Pattern"</label>
                                         <input type="text" id="exclude-entry" name="exclude_entry" placeholder="Custom pattern" autocomplete="off" spellcheck="false" aria-describedby="exclude-glob-help"/>
                                         <small class="help" id="exclude-glob-help">"Files matching these patterns are left out."</small>
                                         <ul class="tag-list" id="exclude-list" aria-label="Selected exclude globs">
-                                            {exclude_globs.into_iter().map(|glob| {
+                                            {exclude_globs.iter().map(|glob| {
                                                 let code = glob.clone();
                                                 view! { <li><code>{code}</code></li> }
                                             }).collect_view()}
@@ -512,6 +598,8 @@ pub fn App(
                 <footer>
                     <p class="help">"Rustrepo-sanitizer reuses one sanitizer core across the CLI, desktop GUI, and this web UI."</p>
                 </footer>
+                <script>{SIZE_SYNC_SCRIPT}</script>
+                <script>{GLOB_LIST_SCRIPT}</script>
             </body>
         </html>
     }
@@ -563,7 +651,7 @@ fn render_job(job: &JobView) -> AnyView {
     view! {
         <section aria-labelledby="job-heading">
             <h2 id="job-heading">"Job " {id.clone()}</h2>
-            <p class="status" data-kind=kind role="status" aria-live="polite">{text}</p>
+            <p class=move || "status" data-kind=kind role="status" aria-live="polite">{text}</p>
             {(!terminal).then(|| view! {
                 <p><a href=refresh>"Refresh status"</a></p>
                 <form method="post" action=format!("/ui/jobs/{id}/cancel")>

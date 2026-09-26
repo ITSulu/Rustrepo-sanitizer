@@ -42,6 +42,33 @@ async fn headings_and_labels_use_title_case() {
     }
 }
 
+/// Renders the form after a validation error, where the alert banner appears.
+async fn error_html() -> String {
+    itsulu_repo_sanitizer::web::init_executor();
+    let root = tempfile::tempdir().unwrap();
+    let state = AppState::for_tests(root.path());
+    let body = concat!(
+        "--xyz\r\n",
+        "Content-Disposition: form-data; name=\"mode\"\r\n\r\nforgejo\r\n",
+        "--xyz\r\n",
+        "Content-Disposition: form-data; name=\"forgejo_repo\"\r\n\r\n../etc\r\n",
+        "--xyz--\r\n",
+    );
+    let response = build_router(Arc::new(state))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ui/jobs")
+                .header("content-type", "multipart/form-data; boundary=xyz")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 #[tokio::test]
 async fn repository_sources_and_branch_field_are_present() {
     let html = index_html().await;
@@ -224,4 +251,75 @@ async fn dropdown_options_are_readable_in_both_themes() {
         html.contains("select option"),
         "select options must be styled so unselected entries stay readable"
     );
+}
+
+#[tokio::test]
+async fn filter_lists_are_submitted_from_hidden_fields() {
+    let html = index_html().await;
+    // The Add buttons drive a list, so the applied patterns are carried in the
+    // newline separated fields the server already parses.
+    assert!(
+        html.contains("id=\"include-globs\" name=\"includes\""),
+        "include list must be submitted as includes"
+    );
+    assert!(
+        html.contains("id=\"exclude-globs\" name=\"excludes\""),
+        "exclude list must be submitted as excludes"
+    );
+}
+
+#[tokio::test]
+async fn custom_pattern_fields_and_add_buttons_are_labelled() {
+    let html = index_html().await;
+    assert!(
+        html.contains("for=\"include-entry\""),
+        "the custom include field needs a label"
+    );
+    assert!(
+        html.contains("for=\"exclude-entry\""),
+        "the custom exclude field needs a label"
+    );
+    // Two indistinguishable "Add" buttons are unusable with a screen reader.
+    assert!(
+        html.contains("aria-label=\"Add include glob\""),
+        "include Add button needs a distinct name"
+    );
+    assert!(
+        html.contains("aria-label=\"Add exclude glob\""),
+        "exclude Add button needs a distinct name"
+    );
+}
+
+#[tokio::test]
+async fn supported_formats_uses_title_cased_cells() {
+    let html = index_html().await;
+    assert!(
+        html.contains("<td>Yes</td>"),
+        "password column must be title case"
+    );
+    assert!(
+        html.contains("<td>No</td>"),
+        "password column must be title case"
+    );
+}
+
+#[tokio::test]
+async fn status_banners_keep_their_style_class() {
+    // A validation error re-renders the form, so the banner is the only place
+    // the class is observable.
+    let html = error_html().await;
+    // Leptos drops a static `class` merged with a dynamic one, which would
+    // leave the banner unstyled.
+    assert!(
+        html.contains("class=\"status\""),
+        "status banners must keep the status class"
+    );
+}
+
+#[tokio::test]
+async fn global_enhancement_scripts_are_present() {
+    let html = index_html().await;
+    assert!(html.contains("max_file_size_bytes"), "size sync script");
+    assert!(html.contains("include-add"), "glob list script");
+    assert!(html.contains("exclude-add"), "glob list script");
 }

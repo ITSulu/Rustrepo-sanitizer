@@ -33,14 +33,48 @@ fn settings_values_for_policy(
 }
 
 /// Maps the GUI unit selector index onto the shared size unit.
-#[allow(dead_code)]
-fn size_unit(index: i32) -> Option<&'static str> {
-    match index {
-        0 => Some("KiB"),
-        1 => Some("MiB"),
-        2 => Some("GiB"),
-        _ => None,
+///
+/// The order matches `SizeUnit::ALL` and the Slint model `["KiB", "MiB", "GiB"]`.
+fn size_unit(index: i32) -> Option<crate::size::SizeUnit> {
+    crate::size::SizeUnit::ALL
+        .get(index.max(0) as usize)
+        .copied()
+}
+
+/// Explains why a non-local repository source cannot be used in the desktop
+/// GUI, or `None` when the local path source is selected.
+///
+/// The desktop app has no server, token, or network policy, so a remote source
+/// is refused rather than quietly falling back to the local path.
+fn unsupported_source(
+    repo_source: i32,
+    git_url: &str,
+    forgejo_repo: &str,
+    github_repo: &str,
+) -> Option<String> {
+    let name = match repo_source {
+        1 => "Git URL",
+        2 => "Forgejo Repository",
+        3 => "GitHub Repository",
+        _ => return None,
+    };
+    let target = [git_url, forgejo_repo, github_repo]
+        .iter()
+        .find(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_owned());
+    match target {
+        Some(target) => Some(format!(
+            "{name} sources need the web UI with server credentials; {target} was not used."
+        )),
+        None => Some(format!(
+            "{name} source is selected but no repository was entered."
+        )),
     }
+}
+
+/// Slint integers are 32-bit, so a very large limit is capped rather than wrapping.
+fn clamp_size(bytes: u64) -> i32 {
+    bytes.min(i32::MAX as u64) as i32
 }
 
 #[cfg(feature = "gui")]
@@ -83,24 +117,50 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     };
     let window = MainWindow::new()?;
     window.set_app_title(format!("Rustrepo Sanitizer {}", env!("CARGO_PKG_VERSION")).into());
+    // The glob presets come from the shared registry so the GUI dropdowns and
+    // the web dropdowns are always the same list.
+    let include_globs: Vec<slint::SharedString> = crate::COMMON_INCLUDE_GLOBS
+        .iter()
+        .map(|glob| slint::SharedString::from(*glob))
+        .collect();
+    let exclude_globs: Vec<slint::SharedString> = crate::COMMON_EXCLUDE_GLOBS
+        .iter()
+        .map(|glob| slint::SharedString::from(*glob))
+        .collect();
+    window.set_common_include_globs(ModelRc::new(VecModel::from(include_globs)));
+    window.set_common_exclude_globs(ModelRc::new(VecModel::from(exclude_globs)));
     if let Ok(repository) = std::env::var("RRS_GUI_REPOSITORY") {
         window.set_repository_path(repository.into());
     }
-    // The unit selector owns display; Rust resolves value + unit to bytes using
-    // the same shared parser the CLI and web UI use.
+    // Rust owns every unit conversion so the value never drifts through a
+    // rounded string, and the same shared parser serves the CLI and web UI.
     let size_ui = window.as_weak();
     window.on_size_edited(move |value| {
         let Some(window) = size_ui.upgrade() else {
             return;
         };
-        let unit = window.get_max_file_size_unit();
-        let Some(unit) = size_unit(unit) else {
+        let Some(unit) = size_unit(window.get_max_file_size_unit()) else {
             return;
         };
-        if let Ok(parsed) = crate::size::parse_size(&format!("{value}{unit}")) {
-            window.set_max_file_size_bytes(parsed.bytes() as i32);
-            window.set_max_file_size(parsed.bytes().to_string().into());
+        match crate::size::parse_size(&format!("{value}{unit}")) {
+            Ok(parsed) => window.set_max_file_size_bytes(clamp_size(parsed.bytes())),
+            Err(err) => window.set_status(format!("Invalid maximum file size: {err}").into()),
         }
+    });
+    // Changing the unit re-expresses the same byte count, so the size the user
+    // chose is preserved exactly.
+    let size_unit_ui = window.as_weak();
+    window.on_size_unit_changed(move |index| {
+        let Some(window) = size_unit_ui.upgrade() else {
+            return;
+        };
+        let Some(unit) = size_unit(index) else {
+            return;
+        };
+        let bytes = window.get_max_file_size_bytes().max(0) as u64;
+        let size = crate::size::Size::from_bytes(bytes);
+        window.set_max_file_size_value(size.value_in(unit).into());
+        window.set_status(format!("Maximum file size: {size}").into());
     });
     let set_compression_options = |window: &MainWindow, format_index: i32| {
         let format = match format_index {
@@ -393,9 +453,26 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
               max_size_bytes,
               include,
               exclude,
-              password| {
+              password,
+              repo_source,
+              git_url,
+              forgejo_repo,
+              github_repo,
+              git_ref| {
             // The unit selector already resolved the human value to bytes.
             let max_size_bytes: u64 = max_size_bytes.max(0) as u64;
+            // Remote sources need a server and credentials the desktop app does
+            // not have, so they are refused explicitly rather than silently
+            // sanitizing the default local path.
+            if let Some(unsupported) =
+                unsupported_source(repo_source, &git_url, &forgejo_repo, &github_repo)
+            {
+                if let Some(window) = weak.upgrade() {
+                    window.set_status(unsupported.into());
+                }
+                return;
+            }
+            let _ = git_ref;
             let repo = PathBuf::from(repo.to_string());
             let format = match format_index {
                 1 => ArchiveFormat::Zip,
@@ -537,6 +614,54 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gui_unit_selector_matches_the_shared_size_units() {
+        use crate::size::SizeUnit;
+        assert_eq!(super::size_unit(0), Some(SizeUnit::Kib));
+        assert_eq!(super::size_unit(1), Some(SizeUnit::Mib));
+        assert_eq!(super::size_unit(2), Some(SizeUnit::Gib));
+        assert_eq!(super::size_unit(3), None);
+        assert_eq!(super::size_unit(-1), Some(SizeUnit::Kib));
+    }
+
+    #[test]
+    fn changing_the_gui_unit_preserves_the_byte_value() {
+        use crate::size::{Size, SizeUnit};
+        let original = Size::new(10.0, SizeUnit::Mib);
+        let bytes = original.bytes();
+        for unit in [SizeUnit::Kib, SizeUnit::Mib, SizeUnit::Gib] {
+            let shown = original.value_in(unit);
+            // Whatever the unit, re-reading the shown value must give the same
+            // byte count back.
+            let reparsed = crate::size::parse_size(&format!("{shown}{}", unit.suffix()))
+                .expect("shown value parses with its unit");
+            assert_eq!(reparsed.bytes(), bytes, "unit {unit} drifted");
+        }
+    }
+
+    #[test]
+    fn large_sizes_are_clamped_to_the_slint_range() {
+        assert_eq!(super::clamp_size(1024), 1024);
+        assert_eq!(super::clamp_size(u64::MAX), i32::MAX);
+    }
+
+    #[test]
+    fn remote_sources_are_refused_in_the_desktop_gui() {
+        // The desktop app has no server, so a remote source must be reported
+        // rather than silently sanitizing the default local path.
+        assert_eq!(super::unsupported_source(0, "", "", ""), None);
+        assert!(
+            super::unsupported_source(1, "https://example.com/r.git", "", "")
+                .is_some_and(|message| message.contains("https://example.com/r.git"))
+        );
+        assert!(super::unsupported_source(2, "", "owner/name", "")
+            .is_some_and(|message| message.contains("owner/name")));
+        assert!(super::unsupported_source(3, "", "", "owner/name")
+            .is_some_and(|message| message.contains("GitHub")));
+        // Selected but empty is also a refusal, not a silent local fallback.
+        assert!(super::unsupported_source(1, "  ", "", "").is_some());
+    }
+
     #[test]
     fn preserves_user_selected_output_path_when_capability_changes() {
         assert_eq!(

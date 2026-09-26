@@ -190,6 +190,7 @@ fn each_control_maps_to_the_intended_description() {
         ("GitHub repository", help::GITHUB_REPO),
         ("Branch or tag", help::GIT_REF),
         ("Maximum file size unit", help::SIZE_UNIT),
+        ("Maximum file size", help::MAX_FILE_SIZE_GUI),
         ("Browse for repository", help::BROWSE_REPOSITORY),
         ("Output file label", help::OUTPUT),
         ("Output file path", help::OUTPUT),
@@ -207,7 +208,6 @@ fn each_control_maps_to_the_intended_description() {
         ("Redact secrets", help::REDACT),
         ("Fail on secret", help::FAIL_ON_SECRET),
         ("Maximum file size label", help::LABEL_MAX_FILE_SIZE),
-        ("Maximum file size", help::MAX_FILE_SIZE),
         ("Include glob label", help::INCLUDE_GLOB_LABEL),
         ("Common include glob patterns", help::INCLUDE_GLOB_LABEL),
         ("Custom include glob", help::INCLUDE_ENTRY),
@@ -314,8 +314,8 @@ fn gui_offers_every_repository_source_with_a_branch_field() {
 #[test]
 fn gui_input_text_uses_a_readable_light_grey() {
     assert!(
-        UI.contains("color: #d1d5db") || UI.contains("#d4d4d8") || UI.contains("#cbd5e1"),
-        "input text must be mildly light grey, not black"
+        UI.contains("input-text-color: #e5e7eb"),
+        "input text must be a light grey that reads against the field background"
     );
 }
 

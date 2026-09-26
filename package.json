@@ -1,0 +1,21 @@
+{
+  "name": "rustrepo-sanitizer-web-tests",
+  "description": "Browser coverage for the Rustrepo-sanitizer web UI.",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test:e2e": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "ssh://git@git.itsulu.com:2222/itsulu/Rustrepo-sanitizer.git"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "@playwright/test": "^1.62.1",
+    "playwright": "^1.62.1"
+  },
+  "private": true
+}

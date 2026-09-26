@@ -157,14 +157,32 @@ component HelpfulLineEdit inherits Rectangle {
     in property <string> placeholder-text;
     in property <InputType> input-type: InputType.text;
     in property <bool> enabled: true;
-    // Mildly light grey so entered values stay readable on the dark field.
-    // Entered text is a mildly light grey so it stays readable on the dark field.
-    in property <color> input-text-color: #d1d5db;
+    // A raw TextInput has no field chrome, so the wrapper supplies a background,
+    // border, and focus ring, and the entered text is a mildly light grey that
+    // stays readable against it in both themes.
+    in property <color> input-text-color: #e5e7eb;
+    in property <brush> field-background: #1f2937;
+    in property <color> field-border: #4b5563;
+    in property <color> field-border-focus: #93c5fd;
+    in property <color> placeholder-color: #9ca3af;
     callback edited(string);
     callback user-edited(string);
-    preferred-width: edit.preferred-width;
-    preferred-height: edit.preferred-height;
+    preferred-width: max(edit.preferred-width, 180px);
+    preferred-height: max(edit.preferred-height, 32px);
     horizontal-stretch: 1;
+    in-out property <bool> focused: false;
+    background: root.field-background;
+    border-width: root.focused ? 2px : 1px;
+    border-color: root.focused ? root.field-border-focus : root.field-border;
+    border-radius: 4px;
+    // The hint is rendered here because a raw TextInput has no placeholder.
+    placeholder := Text {
+        visible: root.text == "" && root.placeholder-text != "";
+        x: 8px;
+        color: root.placeholder-color;
+        font-size: 14px;
+        text: root.placeholder-text;
+    }
     property <bool> hovered: hover.has-hover;
     hover := TouchArea {
         mouse-cursor: MouseCursor.text;
@@ -184,6 +202,7 @@ component HelpfulLineEdit inherits Rectangle {
             accessible-label: root.a11y-label;
             accessible-placeholder-text: root.placeholder-text;
             accessible-value <=> root.text;
+            changed has-focus => { root.focused = self.has-focus; }
             edited => { root.edited(root.text); root.user-edited(root.text); }
         }
     }
@@ -299,6 +318,8 @@ export component MainWindow inherits Window {
     in-out property <string> include-glob: "";
     in-out property <string> exclude-glob: "";
     in-out property <[string]> include-patterns: [];
+    in-out property <[string]> common-include-globs: [];
+    in-out property <[string]> common-exclude-globs: [];
     in-out property <[string]> exclude-patterns: [];
     in-out property <string> password-policy-minimum-length: "8";
     in-out property <bool> password-policy-uppercase: true;
@@ -313,21 +334,11 @@ export component MainWindow inherits Window {
     in-out property <string> forgejo-repo: "";
     in-out property <string> github-repo: "";
     in-out property <string> git-ref: "";
-    // Unit multipliers for the Maximum file size selector.
-    function unit-bytes(index: int) -> int {
-        if (index == 0) { return 1024; }
-        if (index == 1) { return 1048576; }
-        return 1073741824;
-    }
-    // The same byte value expressed in the selected unit.
-    function value-in-unit(bytes: int, index: int) -> string {
-        if (Math.mod(bytes, root.unit-bytes(index) / 10) == 0) { return "" + (bytes / root.unit-bytes(index)); }
-        return "" + round((bytes * 100 / root.unit-bytes(index))) / 100;
-    }
     in-out property <string> zip-password: "";
     in property <[string]> compression-options: [];
     callback size-edited(string);
-    callback sanitize(string, string, bool, bool, int, int, int, bool, bool, bool, int, string, string, string);
+    callback size-unit-changed(int);
+    callback sanitize(string, string, bool, bool, int, int, int, bool, bool, bool, int, string, string, string, int, string, string, string, string);
     callback browse();
     callback browse-output(string, int, int, bool);
     callback cancel();
@@ -348,7 +359,7 @@ export component MainWindow inherits Window {
         Menu { title: "File";
             MenuItem { title: "Open Repository"; shortcut: @keys(Control + O); activated => { root.browse(); } }
             MenuItem { title: "Select Output Folder"; shortcut: @keys(Control + Shift + O); activated => { root.browse-output(root.repository-path, format.current-index, compression.current-index, timestamp.checked); } }
-            MenuItem { title: "Sanitize"; shortcut: @keys(Control + Return); activated => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size-bytes, root.include-glob, root.exclude-glob, root.zip-password); } }
+            MenuItem { title: "Sanitize"; shortcut: @keys(Control + Return); activated => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size-bytes, root.include-glob, root.exclude-glob, root.zip-password, root.repo-source, root.git-url, root.forgejo-repo, root.github-repo, root.git-ref); } }
             MenuItem { title: "Cancel"; shortcut: @keys(Escape); activated => { root.cancel-shortcut(); } }
             MenuSeparator {}
             MenuItem { title: "Quit"; shortcut: @keys(Control + Q); activated => { root.quit-requested(); } }
@@ -401,20 +412,20 @@ export component MainWindow inherits Window {
             HelpfulCheckBox { text: "Redact detected secrets"; help: "Replace high-confidence secret values with redaction markers."; checked <=> root.redact-secrets; a11y-label: "Redact secrets"; }
             HelpfulCheckBox { text: "Fail when secrets are detected"; help: "Stop with an error instead of producing output when a secret is found."; checked <=> root.fail-on-secret; a11y-label: "Fail on secret"; }
             HorizontalLayout { spacing: 6px;
-                size-label := HelpfulLabel { text: "Maximum File Size"; help: "Files above this byte limit are excluded."; a11y-label: "Maximum file size label"; }
-                size-value := HelpfulLineEdit { text <=> root.max-file-size-value; help: "Maximum file size; accepts plain bytes or KiB/MiB/GiB."; a11y-label: "Maximum file size"; edited(text) => { root.size-edited(text); } }
+                size-label := HelpfulLabel { text: "Maximum File Size"; help: "Files larger than this limit are excluded."; a11y-label: "Maximum file size label"; }
+                size-value := HelpfulLineEdit { text <=> root.max-file-size-value; help: "Maximum file size, read in the selected unit."; a11y-label: "Maximum file size"; edited(text) => { root.size-edited(text); } }
                 size-unit := HelpfulComboBox {
                     model: ["KiB", "MiB", "GiB"];
                     current-index <=> root.max-file-size-unit;
-                    help: "Maximum file size; accepts plain bytes or KiB/MiB/GiB.";
+                    help: "Unit for the maximum file size; the value is read in this unit.";
                     a11y-id: "max-file-size-unit";
                     a11y-label: "Maximum file size unit";
-                    selection-changed(index) => { root.max-file-size-unit = index; root.max-file-size-value = root.value-in-unit(root.max-file-size-bytes, index); root.size-edited(root.max-file-size-value); }
+                    selection-changed(index) => { root.max-file-size-unit = index; root.size-unit-changed(index); }
                 }
             }
             HelpfulLabel { text: "Include Glob"; help: "Only files matching these patterns are packed."; a11y-label: "Include glob label"; }
             HorizontalLayout { spacing: 6px;
-                include-choice := HelpfulComboBox { model: ["docs/**/*.md", "src/**/*.rs", "tests/**", ".forgejo/**", "target/**", "vendor/**", "*.log"]; help: "Only files matching these patterns are packed."; a11y-label: "Common include glob patterns"; }
+                include-choice := HelpfulComboBox { model: root.common-include-globs; help: "Only files matching these patterns are packed."; a11y-label: "Common include glob patterns"; }
                 include-entry := HelpfulLineEdit { help: "Type a Git-style glob pattern to include."; placeholder-text: "Custom pattern"; a11y-label: "Custom include glob"; }
                 HelpfulButton { text: "Add"; help: "Add the typed or selected include pattern."; a11y-label: "Add include glob"; clicked => { root.add-include(include-entry.text == "" ? include-choice.current-value : include-entry.text); } }
             }
@@ -424,7 +435,7 @@ export component MainWindow inherits Window {
             }
             HelpfulLabel { text: "Exclude Glob"; help: "Files matching these patterns are left out."; a11y-label: "Exclude glob label"; }
             HorizontalLayout { spacing: 6px;
-                exclude-choice := HelpfulComboBox { model: ["docs/**", "target/**", "vendor/**", "node_modules/**", ".idea/**", "*.log", "*.tmp"]; help: "Files matching these patterns are left out."; a11y-label: "Common exclude glob patterns"; }
+                exclude-choice := HelpfulComboBox { model: root.common-exclude-globs; help: "Files matching these patterns are left out."; a11y-label: "Common exclude glob patterns"; }
                 exclude-entry := HelpfulLineEdit { help: "Type a Git-style glob pattern to exclude."; placeholder-text: "Custom pattern"; a11y-label: "Custom exclude glob"; }
                 HelpfulButton { text: "Add"; help: "Add the typed or selected exclude pattern."; a11y-label: "Add exclude glob"; clicked => { root.add-exclude(exclude-entry.text == "" ? exclude-choice.current-value : exclude-entry.text); } }
             }
@@ -441,7 +452,7 @@ export component MainWindow inherits Window {
         HelpfulButton { text: "Open output folder"; help: "Open the folder containing the finished archive."; enabled: root.result-path != ""; a11y-id: "open-result"; a11y-label: "Open output folder"; clicked => { root.open-result(); } }
         HorizontalLayout { alignment: end; spacing: 10px;
             HelpfulButton { text: "Cancel"; help: "Stop the current sanitization before it finishes."; enabled: root.running; a11y-label: "Cancel sanitization"; clicked => { root.cancel(); } }
-            HelpfulButton { text: "Sanitize"; help: "Build the sanitized archive with the selected options."; enabled: !root.running; a11y-id: "sanitize"; a11y-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size-bytes, root.include-glob, root.exclude-glob, root.zip-password); } }
+            HelpfulButton { text: "Sanitize"; help: "Build the sanitized archive with the selected options."; enabled: !root.running; a11y-id: "sanitize"; a11y-label: "Sanitize repository"; clicked => { root.sanitize(repository.text, root.output-path, untracked.checked, dry-run.checked, format.current-index, compression.current-index, report.current-index, timestamp.checked, root.redact-secrets, root.fail-on-secret, root.max-file-size-bytes, root.include-glob, root.exclude-glob, root.zip-password, root.repo-source, root.git-url, root.forgejo-repo, root.github-repo, root.git-ref); } }
         }
     }
     HelpOverlay { window-width: root.width; window-height: root.height; }

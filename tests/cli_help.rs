@@ -1,6 +1,6 @@
 //! Regression tests for the grouped CLI help output.
 use std::collections::BTreeSet;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use itsulu_repo_sanitizer::help;
 use itsulu_repo_sanitizer::size::parse_size as parse_max_file_size;
@@ -228,4 +228,71 @@ fn groups_appear_in_the_documented_order() {
         );
         last = position;
     }
+}
+
+/// Builds a throwaway repository with one tracked file.
+fn fixture_repo() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {args:?} failed");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "test@example.com"]);
+    git(&["config", "user.name", "Test"]);
+    std::fs::write(repo.join("README.md"), "# fixture\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "init"]);
+    dir
+}
+
+#[test]
+fn sanitize_reports_the_effective_limit_in_binary_units() {
+    let dir = fixture_repo();
+    let repo = dir.path().join("repo");
+    for (argument, expected) in [
+        ("2MiB", "2 MiB"),
+        ("1KiB", "1 KiB"),
+        ("1024", "1 KiB"),
+        ("1GiB", "1 GiB"),
+    ] {
+        let (code, stdout, stderr) = run(&[
+            "sanitize",
+            repo.to_str().unwrap(),
+            "--dry-run",
+            "--max-file-size",
+            argument,
+        ]);
+        assert_eq!(code, 0, "{argument}: {stderr}");
+        assert!(
+            stdout.contains(&format!("max file size {expected}")),
+            "{argument} should report '{expected}', got: {stdout}"
+        );
+    }
+}
+
+#[test]
+fn sanitize_rejects_a_size_with_an_unknown_unit() {
+    let dir = fixture_repo();
+    let repo = dir.path().join("repo");
+    let (code, _stdout, stderr) = run(&[
+        "sanitize",
+        repo.to_str().unwrap(),
+        "--dry-run",
+        "--max-file-size",
+        "10MB",
+    ]);
+    assert_ne!(code, 0, "an unknown unit must be rejected");
+    assert!(
+        stderr.contains("unknown size unit"),
+        "the error should explain the problem, got: {stderr}"
+    );
 }

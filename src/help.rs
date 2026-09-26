@@ -69,7 +69,8 @@ pub const GIT_URL_FIELD: &str = "Public https Git repository URL.";
 pub const FORGEJO_REPO: &str = "Forgejo repository cloned server-side with the configured token.";
 pub const GITHUB_REPO: &str = "GitHub repository cloned server-side with the configured token.";
 pub const GIT_REF: &str = "Optional branch or tag for Forgejo and GitHub sources.";
-pub const SIZE_UNIT: &str = "Maximum file size; accepts plain bytes or KiB/MiB/GiB.";
+pub const SIZE_UNIT: &str = "Unit for the maximum file size; the value is read in this unit.";
+pub const MAX_FILE_SIZE_GUI: &str = "Maximum file size, read in the selected unit.";
 pub const BROWSE_REPOSITORY: &str = "Select a repository folder using the system picker.";
 pub const BROWSE_OUTPUT: &str = "Select the output folder; the filename is derived automatically.";
 pub const ADVANCED_OPTIONS: &str = "Show redaction, size limit, filter, and password controls.";
@@ -90,7 +91,7 @@ pub const LABEL_COMPRESSION: &str = "Choose the compressor used for the bundle."
 pub const LABEL_REPORT: &str = "Choose the optional human-readable or JSON report.";
 pub const LABEL_PASSWORD: &str =
     "Optional encryption for ZIP archives; the password is never persisted.";
-pub const LABEL_MAX_FILE_SIZE: &str = "Files above this byte limit are excluded.";
+pub const LABEL_MAX_FILE_SIZE: &str = "Files larger than this limit are excluded.";
 pub const HELP_CLOSE: &str = "Close this help window.";
 pub const SETTINGS_APPLY: &str = "Apply these password rules to the main window.";
 pub const SETTINGS_CLOSE: &str = "Close this window without applying changes.";
@@ -150,7 +151,7 @@ pub const GUI_HELP: &[&str] = &[
     REDACT,
     FAIL_ON_SECRET,
     LABEL_MAX_FILE_SIZE,
-    MAX_FILE_SIZE,
+    MAX_FILE_SIZE_GUI,
     SIZE_UNIT,
     INCLUDE_GLOB_LABEL,
     INCLUDE_ENTRY,
