@@ -131,7 +131,9 @@ impl Acquirer {
     pub async fn acquire(&self, spec: &InputSpec, dest: &Path) -> Result<PathBuf> {
         match spec {
             InputSpec::LocalPath { path } => self.acquire_local(path, dest),
-            InputSpec::GitUrl { url } => self.acquire_url(url, dest).await,
+            InputSpec::GitUrl { url, git_ref } => {
+                self.acquire_url(url, git_ref.as_deref(), dest).await
+            }
             InputSpec::Upload { upload_id } => self.acquire_upload(upload_id, dest).await,
             InputSpec::Forgejo {
                 owner,
@@ -186,7 +188,7 @@ impl Acquirer {
         Ok(canonical)
     }
 
-    async fn acquire_url(&self, raw: &str, dest: &Path) -> Result<PathBuf> {
+    async fn acquire_url(&self, raw: &str, git_ref: Option<&str>, dest: &Path) -> Result<PathBuf> {
         let url = validate_git_url(raw).map_err(AcquireError::Security)?;
         let host = url
             .host_str()
@@ -198,7 +200,7 @@ impl Acquirer {
             .await
             .map_err(AcquireError::Invalid)?;
         ensure_public_addrs(&addresses).map_err(AcquireError::Security)?;
-        self.clone_into(&url, None, None, dest).await
+        self.clone_into(&url, None, git_ref, dest).await
     }
 
     async fn acquire_authenticated(
@@ -442,7 +444,7 @@ mod tests {
             resolver,
             uploads,
             integrations: Arc::new(Integrations::new(IntegrationsConfig::default())),
-            allowed_local_roots: allowed,
+            allowed_local_roots: allowed.into_iter().map(PathBuf::from).collect(),
             max_repo_bytes: 1024 * 1024,
             extraction_budget: crate::web::security::ExtractionBudget::default(),
         };
@@ -590,6 +592,7 @@ mod tests {
             .acquire(
                 &InputSpec::GitUrl {
                     url: "https://git.example.com/org/repo.git".into(),
+                    git_ref: None,
                 },
                 dest.path(),
             )
@@ -612,6 +615,7 @@ mod tests {
             .acquire(
                 &InputSpec::GitUrl {
                     url: "https://git.example.com/org/repo.git".into(),
+                    git_ref: None,
                 },
                 dest.path(),
             )
@@ -632,7 +636,13 @@ mod tests {
             "https://user:pass@git.example.com/org/repo.git",
         ] {
             assert!(acq
-                .acquire(&InputSpec::GitUrl { url: bad.into() }, dest.path())
+                .acquire(
+                    &InputSpec::GitUrl {
+                        url: bad.into(),
+                        git_ref: None,
+                    },
+                    dest.path(),
+                )
                 .await
                 .is_err());
         }

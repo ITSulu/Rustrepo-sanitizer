@@ -229,7 +229,7 @@ fn validate_request(request: &CreateJobRequest) -> Result<(), String> {
         InputSpec::LocalPath { path } if path.trim().is_empty() => {
             return Err("repository path must not be empty".into())
         }
-        InputSpec::GitUrl { url } => {
+        InputSpec::GitUrl { url, .. } => {
             crate::web::security::validate_git_url(url).map_err(|err| err.to_string())?;
         }
         InputSpec::Upload { upload_id } if upload_id.trim().is_empty() => {
@@ -595,6 +595,7 @@ async fn ui_create_job(State(state): State<Arc<AppState>>, mut multipart: Multip
         }),
         "git_url" => Some(InputSpec::GitUrl {
             url: fields.get("url").cloned().unwrap_or_default(),
+            git_ref: git_ref.clone(),
         }),
         "upload" => upload_id
             .clone()
