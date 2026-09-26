@@ -25,7 +25,9 @@ module.exports = defineConfig({
     url: `${baseURL}/api/health`,
     // Always start a fresh server so the fixture and allowed roots are never stale.
     reuseExistingServer: false,
-    timeout: 120000,
+    // The fixture script builds the binary first, which exceeds the default
+    // web server timeout on a cold runner.
+    timeout: 1800000,
   },
   // Runs after the server is ready so the recorded fixture path exists.
   globalSetup: require.resolve('./tests/playwright/global-setup.js'),
