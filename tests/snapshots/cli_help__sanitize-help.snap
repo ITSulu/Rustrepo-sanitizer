@@ -1,5 +1,6 @@
 ---
 source: tests/cli_help.rs
+assertion_line: 102
 expression: stdout
 ---
 Create a sanitized, reproducible review bundle from a Git repository
@@ -68,3 +69,8 @@ Security / password:
 Advanced:
   -v, --verbose  Print per-file progress details.
   -q, --quiet    Suppress the final summary line.
+
+Complete CLI example:
+  Rustrepo-sanitizer sanitize . --output /tmp/review.tar.gz --archive tar --compression gzip
+  --max-file-size 10MiB --include 'src/**' --exclude 'target/**' --report json --timestamp-name
+  false

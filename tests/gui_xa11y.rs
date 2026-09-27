@@ -3,15 +3,24 @@
 #[test]
 #[ignore = "requires a running native GUI, D-Bus, and AT-SPI"]
 fn discovers_slint_controls_semantically() {
+    use std::process::Command;
     use xa11y::{App, AppExt};
     let apps = App::list().expect("AT-SPI application list must be readable");
     eprintln!(
         "AT-SPI applications: {:?}",
         apps.iter().map(|app| &app.name).collect::<Vec<_>>()
     );
+    let expected_pid = std::env::var("RRS_GUI_PID")
+        .ok()
+        .and_then(|pid| pid.parse::<u32>().ok());
     let app = apps
         .into_iter()
-        .find(|app| app.name.to_ascii_lowercase().contains("rustrepo"))
+        .find(|app| {
+            expected_pid.map_or_else(
+                || app.name.to_ascii_lowercase().contains("rustrepo"),
+                |pid| app.pid == Some(pid),
+            )
+        })
         .expect("Slint application must be discoverable through AT-SPI");
     assert!(app.name.to_ascii_lowercase().contains("rustrepo"));
     app.locator(r##"text_field[name="Local path"]"##)
@@ -26,6 +35,49 @@ fn discovers_slint_controls_semantically() {
     app.locator(r##"button[name="Browse for output folder"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("Output Browse control must be semantically discoverable");
+    let pid = app.pid.expect("GUI process must expose its process id");
+    let windows = Command::new("xdotool")
+        .args(["search", "--pid", &pid.to_string()])
+        .output()
+        .expect("xdotool can find the GUI window");
+    assert!(windows.status.success(), "GUI window lookup must succeed");
+    let window = String::from_utf8_lossy(&windows.stdout)
+        .lines()
+        .next()
+        .expect("GUI window id")
+        .to_owned();
+    let resize = |width: &str, height: &str| {
+        let status = Command::new("xdotool")
+            .args(["windowsize", &window, width, height])
+            .status()
+            .expect("xdotool can resize the GUI");
+        assert!(status.success());
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    };
+    let output_bounds = || {
+        app.locator(r##"text_field[name="Output file path"]"##)
+            .element()
+            .expect("Output File control is accessible")
+            .bounds
+            .expect("Output File control has screen bounds")
+    };
+    let browse_bounds = || {
+        app.locator(r##"button[name="Browse for output folder"]"##)
+            .element()
+            .expect("Browse control is accessible")
+            .bounds
+            .expect("Browse control has screen bounds")
+    };
+    resize("640", "540");
+    let narrow_output = output_bounds();
+    let narrow_browse = browse_bounds();
+    assert!(narrow_output.x + narrow_output.width as i32 <= narrow_browse.x + 2);
+    resize("1000", "800");
+    let wide_output = output_bounds();
+    let wide_browse = browse_bounds();
+    assert!(wide_output.width > narrow_output.width + 100,
+        "Output File field must use added row space: narrow={narrow_output:?}, wide={wide_output:?}");
+    assert!(wide_output.x + wide_output.width as i32 <= wide_browse.x + 2);
     app.locator(r##"combo_box[name="Archive format"]"##)
         .wait_visible(std::time::Duration::from_secs(5))
         .expect("Archive selector must be semantically discoverable");
@@ -87,5 +139,23 @@ fn discovers_slint_controls_semantically() {
             "sanitization action must update the accessible status: {tree}"
         );
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    // Slint currently exposes its native menu labels as non-actionable static
+    // text in AT-SPI. Verify the AboutWindow's actual metadata values through
+    // its accessible text labels in this app tree.
+    let about = app
+        .dump(Some(12))
+        .expect("About window must remain accessible");
+    for content in [
+        "Rustrepo-sanitizer",
+        "Version 0.6.3",
+        "Apache License 2.0",
+        "Slint is used under its applicable selected Slint license.",
+        "implementation support provided by AI agents including OpenAI Codex",
+    ] {
+        assert!(
+            about.contains(content),
+            "About must expose {content}: {about}"
+        );
     }
 }

@@ -80,9 +80,12 @@ fn all_help_aliases_exit_successfully() {
 
 #[test]
 fn sanitize_help_alias_exits_successfully() {
-    let (code, stdout, _) = run(&["sanitize", "-help"]);
-    assert_eq!(code, 0);
-    assert!(stdout.contains("Usage:"));
+    for alias in ["--help", "-h", "-help"] {
+        let (code, stdout, _) = run(&["sanitize", alias]);
+        assert_eq!(code, 0, "sanitize {alias}");
+        assert!(stdout.contains("Usage:"));
+        assert!(stdout.contains("Complete CLI example:"));
+    }
 }
 
 #[test]
@@ -102,7 +105,8 @@ fn sanitize_help_snapshot() {
 #[test]
 fn every_public_argument_appears_exactly_once() {
     let (_, stdout, _) = run(&["sanitize", "--help"]);
-    let flags: Vec<String> = long_flags(&stdout)
+    let arguments = stdout.split("Complete CLI example:").next().unwrap();
+    let flags: Vec<String> = long_flags(arguments)
         .into_iter()
         .filter(|flag| flag != "format" && flag != "help")
         .collect();
@@ -121,7 +125,7 @@ fn no_stale_or_unknown_options_are_documented() {
         .map(|flag| flag.trim_start_matches("--"))
         .chain(["help", "format"])
         .collect();
-    for flag in long_flags(&stdout) {
+    for flag in long_flags(stdout.split("Complete CLI example:").next().unwrap()) {
         assert!(
             known.contains(flag.as_str()),
             "help documents unknown option `--{flag}`"
@@ -215,6 +219,28 @@ fn top_level_help_documents_launch_and_web_groups() {
 }
 
 #[test]
+fn bare_help_contains_every_sanitize_group_argument_and_description() {
+    for alias in ["--help", "-h"] {
+        let (code, stdout, _) = run(&[alias]);
+        assert_eq!(code, 0);
+        for group in help::CLI_GROUPS {
+            assert!(stdout.contains(group), "{alias} is missing group {group}");
+        }
+        let normalized = normalize(&stdout);
+        for flag in SANITIZE_FLAGS {
+            assert!(stdout.contains(flag), "{alias} is missing {flag}");
+        }
+        for description in help::CLI_HELP {
+            assert!(
+                normalized.contains(&normalize(description)),
+                "{alias} is missing {description}"
+            );
+        }
+        assert!(stdout.contains("Complete CLI example:"));
+    }
+}
+
+#[test]
 fn groups_appear_in_the_documented_order() {
     let (_, stdout, _) = run(&["sanitize", "--help"]);
     let mut last = 0;
@@ -236,16 +262,41 @@ fn complete_cli_only_example_is_shown_and_parses() {
     assert_eq!(code, 0);
     assert!(stdout.contains("Complete CLI example:"));
     let example = stdout
+        .split("Complete CLI example:")
+        .nth(1)
+        .expect("complete CLI-only example")
         .lines()
-        .find(|line| line.trim_start().starts_with("Rustrepo-sanitizer sanitize"))
-        .expect("complete CLI-only example");
-    let args = example.split_whitespace().skip(1).collect::<Vec<_>>();
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let dir = fixture_repo();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let archive = dir.path().join("example.tar.gz");
+    let mut args = example
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(args.remove(0), "Rustrepo-sanitizer");
+    assert_eq!(args[0], "sanitize");
+    args[1] = repo.to_string_lossy().into_owned();
+    let output_index = args.iter().position(|arg| arg == "--output").unwrap() + 1;
+    args[output_index] = archive.to_string_lossy().into_owned();
     let output = Command::new(env!("CARGO_BIN_EXE_Rustrepo-sanitizer"))
-        .args(args)
-        .arg("--help")
+        .args(&args)
+        .stdin(Stdio::null())
         .output()
-        .expect("example command parses");
-    assert!(output.status.success());
+        .expect("complete CLI example runs without a prompt");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        archive.is_file(),
+        "example must create its sanitized output"
+    );
 }
 
 #[test]
@@ -254,6 +305,8 @@ fn sanitize_arguments_only_can_create_a_complete_archive_without_prompts() {
     let repo = dir.path().join("repo");
     std::fs::write(repo.join("notes.txt"), "agent supplied options\n").unwrap();
     let archive = dir.path().join("review.tar.gz");
+    std::fs::create_dir_all(repo.join("target")).unwrap();
+    std::fs::write(repo.join("target/output.txt"), "must be excluded\n").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_Rustrepo-sanitizer"))
         .args([
             "sanitize",
@@ -272,7 +325,7 @@ fn sanitize_arguments_only_can_create_a_complete_archive_without_prompts() {
             "--include",
             "*.txt",
             "--exclude",
-            "ignored/**",
+            "target/**",
             "--no-redact",
             "--timestamp-name",
             "false",
@@ -280,8 +333,40 @@ fn sanitize_arguments_only_can_create_a_complete_archive_without_prompts() {
         .stdin(Stdio::null())
         .output()
         .expect("CLI-only sanitize invocation");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(archive.is_file(), "the requested archive must be created");
+    let listing = Command::new("tar")
+        .args(["-tzf", archive.to_str().unwrap()])
+        .output()
+        .expect("tar can inspect the generated archive");
+    assert!(listing.status.success());
+    let members = String::from_utf8_lossy(&listing.stdout);
+    assert!(
+        members.contains("notes.txt"),
+        "include glob takes effect: {members}"
+    );
+    assert!(
+        !members.contains("README.md"),
+        "unmatched tracked file excluded: {members}"
+    );
+    assert!(
+        !members.contains("target/output.txt"),
+        "exclude glob takes effect: {members}"
+    );
+    assert!(
+        members.contains("SANITIZATION-REPORT.json"),
+        "JSON report option takes effect: {members}"
+    );
+    let note = Command::new("tar")
+        .args(["-xOzf", archive.to_str().unwrap(), "notes.txt"])
+        .output()
+        .expect("tar can inspect sanitized file content");
+    assert!(note.status.success());
+    assert_eq!(note.stdout, b"agent supplied options\n");
 }
 
 /// Builds a throwaway repository with one tracked file.

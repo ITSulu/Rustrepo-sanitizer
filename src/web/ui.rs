@@ -33,9 +33,14 @@ h1 { font-size: clamp(1.5rem, 4vw, 2.25rem); }
 nav#nav { display:flex; gap:1rem; border-bottom:1px solid var(--border); padding-bottom:.5rem; margin-bottom:1rem; }
 nav#nav a { text-decoration:none; padding:.35rem .6rem; border-radius:.35rem; }
 nav#nav a[aria-current="page"] { background:var(--accent-fill); color:#fff; }
+section.view { display:none; }
+section#sanitize { display:block; }
+section.view:target { display:block; }
+body:has(section.view:target) section#sanitize:not(:target) { display:none; }
 fieldset { border:1px solid var(--border); border-radius:.5rem; padding:1rem; margin:0 0 1rem; background:var(--card); }
 legend { font-weight:600; padding:0 .35rem; }
 .grid { display:grid; gap:.75rem 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+.filters-grid { grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); }
 .field { display:flex; flex-direction:column; gap:.25rem; }
 .field.inline { flex-direction:row; align-items:center; gap:.5rem; }
 .row { display:grid; gap:.75rem 1rem; grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
@@ -47,6 +52,7 @@ select option { background:var(--opt-bg); color:var(--opt-fg); }
 .size-row { display:flex; gap:.5rem; }
 .size-row input[type=number] { flex:1 1 auto; }
 .size-row select { flex:0 0 7rem; }
+#include-choice, #exclude-choice { width:auto; flex:1 1 15rem; min-width:15rem; }
 button { background:var(--accent-fill); color:#fff; border:0; border-radius:.35rem; padding:.6rem 1.1rem; cursor:pointer; }
 button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
 .status { border-left:4px solid var(--accent); padding:.75rem 1rem; background:var(--card); margin:1rem 0; }
@@ -63,7 +69,26 @@ th, td { text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--bor
 .tip .tip-text { position:absolute; left:0; top:1.4em; z-index:20; width:max-content; max-width:min(32rem, 90vw); white-space:normal; text-wrap:balance; padding:.4rem .6rem; border-radius:.35rem; background:var(--fg); color:var(--bg); font-size:.85rem; line-height:1.3; opacity:0; visibility:hidden; transition:opacity .1s linear; transition-delay: 2s; }
 .tip:hover .tip-text, .tip:focus-within .tip-text { opacity:1; visibility:visible; }
 @media (prefers-reduced-motion: reduce) { .tip .tip-text { transition:none; } }
-@media (max-width: 40rem) { header, main, footer { padding:.75rem; } .grid { grid-template-columns: 1fr; } .row { grid-template-columns: 1fr; } }
+@media (max-width: 40rem) { header, main, footer { padding:.75rem; } .grid { grid-template-columns: 1fr; } .row { grid-template-columns: 1fr; } .glob-row { flex-wrap:wrap; } #include-choice, #exclude-choice { min-width:0; flex:1 1 100%; } }
+"#;
+
+const VIEW_SCRIPT: &str = r#"
+(function () {
+  function activate() {
+    var id = location.hash.slice(1);
+    if (!['sanitize', 'option-reference', 'about'].includes(id)) id = 'sanitize';
+    document.querySelectorAll('section.view').forEach(function (section) {
+      section.classList.toggle('active', section.id === id);
+      section.hidden = section.id !== id;
+    });
+    document.querySelectorAll('#nav a').forEach(function (link) {
+      if (link.hash === '#' + id) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }
+  window.addEventListener('hashchange', activate);
+  activate();
+})();
 "#;
 
 /// Preserves the submitted form values across an error re-render.
@@ -250,11 +275,11 @@ const GLOB_LIST_SCRIPT: &str = r#"
     var current = hidden.value ? hidden.value.split('\n') : [];
     if (current.indexOf(pattern) === -1) { current.push(pattern); }
     hidden.value = current.join('\n');
-    render(kind, list, current);
+    render(kind, list, hidden, current);
     entry.value = '';
     choice.value = '';
   }
-  function render(kind, list, patterns) {
+  function render(kind, list, hidden, patterns) {
     list.textContent = '';
     patterns.forEach(function (pattern) {
       var item = document.createElement('li');
@@ -271,7 +296,7 @@ const GLOB_LIST_SCRIPT: &str = r#"
           return entry && entry !== pattern;
         });
         hidden.value = next.join('\n');
-        render(kind, list, next);
+        render(kind, list, hidden, next);
       });
       item.appendChild(remove);
       list.appendChild(item);
@@ -348,10 +373,11 @@ pub fn App(
                 <a class="skip" href="#main">"Skip to main content"</a>
                 <header>
                     <h1>"Rustrepo Sanitizer Web"</h1>
-                    <p class="help">"Create a deterministic, sanitized AI review bundle. Version " {version}</p>
+                    <p class="help">"Create a deterministic, sanitized AI review bundle. Version " {version.clone()}</p>
                     <nav id="nav" aria-label="Sections">
                         <a href="#sanitize" aria-current="page">"Sanitize"</a>
                         <a href="#option-reference">"Option Reference"</a>
+                        <a href="#about">"About"</a>
                     </nav>
                 </header>
                 <main id="main">
@@ -362,7 +388,7 @@ pub fn App(
                         <p class=move || "status" data-kind="ok" role="status">{message}</p>
                     })}
                     {job.map(|job| render_job(&job))}
-                    <section id="sanitize" aria-labelledby="form-heading">
+                    <section id="sanitize" class="view" data-view="sanitize" aria-labelledby="form-heading">
                         <h2 id="form-heading">"Sanitize A Repository"</h2>
                         <form method="post" action="/ui/jobs" enctype="multipart/form-data" aria-describedby=has_error.then_some("form-error")>
                             <fieldset>
@@ -437,7 +463,7 @@ pub fn App(
                                     </div>
                                     <div class="field">
                                         <label for="max_file_size">"Maximum File Size"</label>
-                                        <div class="size-row">
+                                        <div class="size-row glob-row">
                                             <input type="number" id="max_file_size" name="max_file_size" min="0" step="any" value=size_value aria-describedby="max-file-size-help"/>
                                             <select id="max_file_size_unit" name="max_file_size_unit" aria-label="Maximum file size unit">
                                                 {unit_options(size_unit)}
@@ -478,10 +504,10 @@ pub fn App(
                             </fieldset>
                             <fieldset>
                                 <legend>"Filters"</legend>
-                                <div class="grid">
+                                <div class="grid filters-grid">
                                     <div class="field">
                                         <label for="include-choice">"Include Globs"</label>
-                                        <div class="size-row">
+                                        <div class="size-row glob-row">
                                             <select id="include-choice" name="include_choice" aria-describedby="include-glob-help">
                                                 {glob_options(&COMMON_INCLUDE_GLOBS)}
                                             </select>
@@ -500,7 +526,7 @@ pub fn App(
                                     </div>
                                     <div class="field">
                                         <label for="exclude-choice">"Exclude Globs"</label>
-                                        <div class="size-row">
+                                        <div class="size-row glob-row">
                                             <select id="exclude-choice" name="exclude_choice" aria-describedby="exclude-glob-help">
                                                 {glob_options(&COMMON_EXCLUDE_GLOBS)}
                                             </select>
@@ -570,7 +596,7 @@ pub fn App(
                             <button type="submit">"Start Sanitizing"</button>
                         </form>
                     </section>
-                    <section id="option-reference" aria-labelledby="help-heading">
+                    <section id="option-reference" class="view" data-view="option-reference" aria-labelledby="help-heading">
                         <h2 id="help-heading">"Option Reference"</h2>
                         <p class="help">
                             {format!("Hover a field name for one second to see its help. Tooltips appear after {TOOLTIP_DELAY_MS} ms.")}
@@ -594,12 +620,24 @@ pub fn App(
                             </dl>
                         }).collect_view()}
                     </section>
+                    <section id="about" class="view" data-view="about" aria-labelledby="about-heading">
+                        <h2 id="about-heading">"About"</h2>
+                        <h3 id="about-product">{crate::help::ABOUT_PRODUCT_NAME}</h3>
+                        <p id="about-version">"Version " {version.clone()}</p>
+                        <p id="about-build-date">"Build date: " {crate::help::about_build_date()}</p>
+                        <p id="about-license">{crate::help::ABOUT_LICENSE}</p>
+                        <p id="about-slint-license">{crate::help::ABOUT_SLINT_LICENSE}</p>
+                        <p id="about-credits">{crate::help::ABOUT_CREDITS}</p>
+                        <p><a id="about-website" href=crate::help::ABOUT_WEBSITE_URL>"Project website"</a></p>
+                        <p><a id="about-forgejo" href=crate::help::ABOUT_FORGEJO_URL>"Authoritative Forgejo repository"</a></p>
+                    </section>
                 </main>
                 <footer>
                     <p class="help">"Rustrepo-sanitizer reuses one sanitizer core across the CLI, desktop GUI, and this web UI."</p>
                 </footer>
                 <script>{SIZE_SYNC_SCRIPT}</script>
                 <script>{GLOB_LIST_SCRIPT}</script>
+                <script>{VIEW_SCRIPT}</script>
             </body>
         </html>
     }

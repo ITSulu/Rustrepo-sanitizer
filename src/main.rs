@@ -52,7 +52,8 @@ struct Cli {
 enum Command {
     #[command(
         about = "Create a sanitized, reproducible review bundle from a Git repository",
-        max_term_width = 100
+        max_term_width = 100,
+        after_help = help::CLI_EXAMPLE
     )]
     Sanitize(SanitizeArgs),
     #[command(about = "List supported archive and compression formats")]
@@ -209,6 +210,11 @@ fn parse_max_file_size_arg(input: &str) -> Result<u64, String> {
 }
 
 fn main() -> ExitCode {
+    let raw_args: Vec<_> = std::env::args_os().collect();
+    if raw_args.len() == 2 && matches!(raw_args[1].to_str(), Some("--help" | "-h")) {
+        print_complete_help();
+        return ExitCode::SUCCESS;
+    }
     let cli = Cli::parse();
 
     if (cli.gui || cli.web) && cli.command.is_some() {
@@ -232,6 +238,19 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Bare help includes the full sanitize argument groups as well as launch and
+/// web-server options, so agents do not have to discover a second help page.
+fn print_complete_help() {
+    let mut command = Cli::command();
+    let sanitize_help = command
+        .find_subcommand_mut("sanitize")
+        .expect("sanitize subcommand is defined")
+        .clone()
+        .render_help();
+    let top_help = command.render_help();
+    println!("{top_help}\nSanitization options:\n{sanitize_help}");
 }
 
 #[cfg(feature = "web")]

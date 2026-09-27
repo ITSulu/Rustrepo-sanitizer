@@ -282,13 +282,14 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     let help_window = Rc::new(HelpWindow::new()?);
     let settings_window = Rc::new(SettingsWindow::new()?);
     let about_window = Rc::new(AboutWindow::new()?);
+    about_window.set_product_name(crate::help::ABOUT_PRODUCT_NAME.into());
     about_window.set_version(env!("CARGO_PKG_VERSION").into());
-    about_window.set_build_date(
-        option_env!("SOURCE_DATE_EPOCH")
-            .map(|value| format!("SOURCE_DATE_EPOCH={value}"))
-            .unwrap_or_else(|| "reproducible build metadata unavailable".to_owned())
-            .into(),
-    );
+    about_window.set_build_date(crate::help::about_build_date().into());
+    about_window.set_license(crate::help::ABOUT_LICENSE.into());
+    about_window.set_slint_license(crate::help::ABOUT_SLINT_LICENSE.into());
+    about_window.set_credits(crate::help::ABOUT_CREDITS.into());
+    about_window.set_website_url(crate::help::ABOUT_WEBSITE_URL.into());
+    about_window.set_forgejo_url(crate::help::ABOUT_FORGEJO_URL.into());
     let help_for_callback = help_window.clone();
     window.on_show_help(move || {
         let _ = help_for_callback.show();

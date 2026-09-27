@@ -60,6 +60,28 @@ test.describe('web UI', () => {
     await page.goto('/');
     await page.locator('nav#nav a[href="#option-reference"]').click();
     await expect(page).toHaveURL(/#option-reference$/);
+    await expect(page.locator('#nav a[aria-current="page"]')).toHaveText('Option Reference');
+    await expect(page.locator('#sanitize')).toBeHidden();
+    await page.locator('nav#nav a[href="#about"]').click();
+    await expect(page.locator('#about')).toBeVisible();
+    await expect(page.locator('#nav a[aria-current="page"]')).toHaveText('About');
+  });
+
+  test('About presents shared GUI metadata', async ({ page }) => {
+    await page.goto('/#about');
+    await expect(page.locator('#about')).toBeVisible();
+    await expect(page.locator('#about-product')).toHaveText('Rustrepo-sanitizer');
+    await expect(page.locator('#about-version')).toContainText('0.6.3');
+    await expect(page.locator('#about-license')).toHaveText('Apache License 2.0');
+    await expect(page.locator('#about-slint-license')).toHaveText(
+      'Slint is used under its applicable selected Slint license.',
+    );
+    await expect(page.locator('#about-credits')).toContainText('OpenAI Codex');
+    await expect(page.locator('#about-website')).toHaveAttribute('href', 'https://itsulu.com/Rustrepo');
+    await expect(page.locator('#about-forgejo')).toHaveAttribute(
+      'href',
+      'https://git.itsulu.com/itsulu/Rustrepo-sanitizer',
+    );
   });
 
   test('exposes title-cased headings and labels', async ({ page }) => {
@@ -75,13 +97,18 @@ test.describe('web UI', () => {
       'Include Globs',
       'Exclude Globs',
       'Supported Formats',
-      'Option Reference',
     ]) {
       // Match the visible label, not a hidden placeholder of the same text.
       await expect(
         page.locator('label, legend, h1, h2, h3').filter({ hasText: new RegExp(`^${text}$`) }).first(),
       ).toBeVisible();
     }
+    await page.locator('nav#nav a[href="#option-reference"]').click();
+    await expect(page.locator('#option-reference h2')).toHaveText('Option Reference');
+    await expect(page.locator('#option-reference h2')).toBeVisible();
+    await page.locator('nav#nav a[href="#about"]').click();
+    await expect(page.locator('#about h2')).toHaveText('About');
+    await expect(page.locator('#about h2')).toBeVisible();
   });
 
   test('repository source layout orders Forgejo below the local path with a branch field', async ({ page }) => {
@@ -148,7 +175,7 @@ test.describe('web UI', () => {
   });
 
   test('option reference tooltips appear only after a long hover', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/#option-reference');
     const field = page.locator('#option-reference .tip').first();
     const tip = page.locator('#tip-repository');
     // The dwell time gates the transition, so opacity carries the timing.
@@ -217,6 +244,8 @@ test.describe('web UI', () => {
       await page.locator(add).click();
       await expect(page.locator(list)).toContainText(`custom-${kind}/**`);
       await page.locator(list).getByRole('button', { name: `Remove custom-${kind}/**` }).click();
+      const submitted = await page.locator(`#${kind}-globs`).inputValue();
+      expect(submitted).not.toContain(`custom-${kind}/**`);
       await expect(page.locator(list)).not.toContainText(`custom-${kind}/**`);
     }
   });

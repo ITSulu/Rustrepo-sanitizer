@@ -310,12 +310,12 @@ mod tests {
     }
 
     #[test]
-    fn current_release_metadata_targets_0_6_2() {
+    fn current_release_metadata_targets_0_6_3() {
         let manifest = include_str!("../Cargo.toml");
-        assert!(manifest.contains("version = \"0.6.2\""));
+        assert!(manifest.contains("version = \"0.6.3\""));
         // Every release documents what changed.
         let changelog = include_str!("../CHANGELOG.md");
-        assert!(changelog.contains("## 0.6.2"));
+        assert!(changelog.contains("## 0.6.3"));
     }
 
     #[test]

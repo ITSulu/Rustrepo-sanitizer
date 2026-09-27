@@ -190,6 +190,22 @@ async fn top_navigation_offers_separate_sanitize_option_reference_and_about_view
 }
 
 #[tokio::test]
+async fn web_about_uses_the_shared_desktop_metadata() {
+    let html = index_html().await;
+    for content in [
+        itsulu_repo_sanitizer::help::ABOUT_PRODUCT_NAME,
+        itsulu_repo_sanitizer::help::ABOUT_LICENSE,
+        itsulu_repo_sanitizer::help::ABOUT_SLINT_LICENSE,
+        itsulu_repo_sanitizer::help::ABOUT_CREDITS,
+        itsulu_repo_sanitizer::help::ABOUT_WEBSITE_URL,
+        itsulu_repo_sanitizer::help::ABOUT_FORGEJO_URL,
+        "about-build-date",
+    ] {
+        assert!(html.contains(content), "About page must contain {content}");
+    }
+}
+
+#[tokio::test]
 async fn option_reference_fields_have_hover_tooltips() {
     let html = index_html().await;
     assert!(

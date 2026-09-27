@@ -59,7 +59,9 @@ progressive enhancements only: one keeps the maximum file size in step with its
 unit selector, and one drives the include/exclude glob lists. Everything is
 still submitted and resolved server side when scripting is off.
 
-- **Top navigation** moves between the Sanitize form and the Option Reference.
+- **Top navigation** moves between separate Sanitize, Option Reference, and About views.
+- **About** uses the same shared product, license, credits, and link metadata as
+  the desktop GUI's Help → About window.
 - **Option Reference** lists every option with a one-line tooltip that appears
   after a two second hover, matching the desktop GUI's hover help.
 - **Repository Source** offers Server Local Path, Git URL, Uploaded Archive,
@@ -69,7 +71,7 @@ still submitted and resolved server side when scripting is off.
   selector. Changing the unit preserves the exact byte count; the form carries
   the byte-equivalent value, and the server clamps any submitted value to a
   usable range.
-- **Filters** offer a common-pattern dropdown, an Add button, and a custom
+- **Filters** offer wide common-pattern dropdowns, an Add button, and a custom
   pattern field for both include and exclude globs. Each added pattern is
   listed with a Remove control and submitted as a newline separated value.
 - **Supported Formats** appears inside Output, below Maximum File Size.
