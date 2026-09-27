@@ -642,6 +642,19 @@ async fn ui_create_job(State(state): State<Arc<AppState>>, mut multipart: Multip
         )
         .await;
     };
+    if let InputSpec::GitUrl { url, .. } = &input {
+        if let Err(err) = crate::web::security::validate_git_url(url) {
+            return render_app(
+                dto::capabilities_view(),
+                None,
+                None,
+                Some(err.to_string()),
+                fields.clone(),
+                Request::new(Body::empty()),
+            )
+            .await;
+        }
+    }
     let options = parse_options(&fields);
     match jobs::start_job(state, input, options).await {
         Ok(id) => Redirect::to(&format!("/ui/jobs/{id}")).into_response(),

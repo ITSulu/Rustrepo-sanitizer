@@ -351,11 +351,14 @@ test.describe('web UI', () => {
     await page.locator('#mode').selectOption('git_url');
     await page.locator('#url').fill('https://127.0.0.1/secret.git');
     await page.locator('button[type=submit]').click();
-    // A literal private address can be refused either while validating the
-    // request (an alert on the form) or when the job runs, so accept both.
-    const rejection = /private, loopback, or reserved/i;
-    await expect(page.locator('#form-error, .status[data-kind="error"]').first())
-      .toContainText(rejection, { timeout: 60000 });
+    // The server must reject this during submission and re-render the form.
+    // Waiting for navigation also ensures the assertion observes the response,
+    // not a pre-submit state.
+    await page.waitForLoadState('domcontentloaded');
+    const alert = page.locator('#form-error');
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText(/private, loopback, or reserved/i);
+    await expect(page.locator('#url')).toHaveValue('https://127.0.0.1/secret.git');
   });
 
   test('is keyboard navigable with a visible focus indicator', async ({ page }) => {
