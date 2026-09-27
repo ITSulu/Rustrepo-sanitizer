@@ -38,12 +38,22 @@ async function submitAndWaitForJob(page, { timeout = 120000 } = {}) {
 }
 
 test.describe('web UI', () => {
-  test('renders the sanitize and option reference navigation', async ({ page }) => {
+  test('renders separate Sanitize, Option Reference, and About views', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('nav#nav a[href="#sanitize"]')).toHaveText('Sanitize');
     await expect(page.locator('nav#nav a[href="#option-reference"]')).toHaveText('Option Reference');
+    await expect(page.locator('nav#nav a[href="#about"]')).toHaveText('About');
     await expect(page.locator('#sanitize')).toBeVisible();
+    await expect(page.locator('#option-reference')).toBeHidden();
+    await expect(page.locator('#about')).toBeHidden();
+    await page.locator('nav#nav a[href="#option-reference"]').click();
     await expect(page.locator('#option-reference')).toBeVisible();
+    await expect(page.locator('#sanitize')).toBeHidden();
+    await expect(page.locator('#about')).toBeHidden();
+    await page.locator('nav#nav a[href="#about"]').click();
+    await expect(page.locator('#about')).toBeVisible();
+    await expect(page.locator('#sanitize')).toBeHidden();
+    await expect(page.locator('#option-reference')).toBeHidden();
   });
 
   test('navigation moves between sections', async ({ page }) => {
@@ -189,6 +199,26 @@ test.describe('web UI', () => {
     await page.locator('#include-choice').selectOption('src/**/*.rs');
     await page.locator('#include-entry').fill('custom/**');
     await expect(page.locator('#include-entry')).toHaveValue('custom/**');
+  });
+
+  test('include and exclude preset controls are wide and retain add/remove behavior', async ({ page }) => {
+    await page.goto('/');
+    for (const [kind, preset, entry, add, list] of [
+      ['include', 'src/**/*.rs', '#include-entry', '#include-add', '#include-list'],
+      ['exclude', 'target/**', '#exclude-entry', '#exclude-add', '#exclude-list'],
+    ]) {
+      const select = page.locator(`#${kind}-choice`);
+      const box = await select.boundingBox();
+      expect(box.width).toBeGreaterThanOrEqual(260);
+      await select.selectOption(preset);
+      await page.locator(add).click();
+      await expect(page.locator(list)).toContainText(preset);
+      await page.locator(entry).fill(`custom-${kind}/**`);
+      await page.locator(add).click();
+      await expect(page.locator(list)).toContainText(`custom-${kind}/**`);
+      await page.locator(list).getByRole('button', { name: `Remove custom-${kind}/**` }).click();
+      await expect(page.locator(list)).not.toContainText(`custom-${kind}/**`);
+    }
   });
 
   test('validation errors are announced and keep the entered values', async ({ page }) => {

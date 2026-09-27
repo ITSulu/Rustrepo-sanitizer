@@ -230,6 +230,60 @@ fn groups_appear_in_the_documented_order() {
     }
 }
 
+#[test]
+fn complete_cli_only_example_is_shown_and_parses() {
+    let (code, stdout, _) = run(&["--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("Complete CLI example:"));
+    let example = stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with("Rustrepo-sanitizer sanitize"))
+        .expect("complete CLI-only example");
+    let args = example.split_whitespace().skip(1).collect::<Vec<_>>();
+    let output = Command::new(env!("CARGO_BIN_EXE_Rustrepo-sanitizer"))
+        .args(args)
+        .arg("--help")
+        .output()
+        .expect("example command parses");
+    assert!(output.status.success());
+}
+
+#[test]
+fn sanitize_arguments_only_can_create_a_complete_archive_without_prompts() {
+    let dir = fixture_repo();
+    let repo = dir.path().join("repo");
+    std::fs::write(repo.join("notes.txt"), "agent supplied options\n").unwrap();
+    let archive = dir.path().join("review.tar.gz");
+    let output = Command::new(env!("CARGO_BIN_EXE_Rustrepo-sanitizer"))
+        .args([
+            "sanitize",
+            repo.to_str().unwrap(),
+            "--output",
+            archive.to_str().unwrap(),
+            "--archive",
+            "tar",
+            "--compression",
+            "gzip",
+            "--report",
+            "json",
+            "--include-untracked",
+            "--max-file-size",
+            "2MiB",
+            "--include",
+            "*.txt",
+            "--exclude",
+            "ignored/**",
+            "--no-redact",
+            "--timestamp-name",
+            "false",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("CLI-only sanitize invocation");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(archive.is_file(), "the requested archive must be created");
+}
+
 /// Builds a throwaway repository with one tracked file.
 fn fixture_repo() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();

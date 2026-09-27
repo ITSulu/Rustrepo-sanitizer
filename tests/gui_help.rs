@@ -291,6 +291,29 @@ fn maximum_file_size_has_a_unit_selector_and_label() {
 }
 
 #[test]
+fn field_labels_use_light_text_and_output_path_stretches_before_browse() {
+    let label = UI
+        .split("component HelpfulLabel inherits Rectangle {")
+        .nth(1)
+        .and_then(|rest| rest.split("export component HelpWindow").next())
+        .expect("HelpfulLabel component");
+    assert!(
+        label.contains("text-color: #e5e7eb") || label.contains("text-color: #d1d5db"),
+        "field label default must be light grey against the dark form background"
+    );
+    assert!(!label.contains("text-color: #000000"));
+
+    let output_row = UI
+        .split("HelpfulLabel { text: \"Output File\"")
+        .nth(1)
+        .and_then(|rest| rest.split("untracked :=").next())
+        .expect("Output File row");
+    assert!(output_row.contains("horizontal-stretch: 1"));
+    assert!(output_row.find("output := HelpfulLineEdit").unwrap()
+        < output_row.find("HelpfulButton { text: \"Browse…\"").unwrap());
+}
+
+#[test]
 fn gui_offers_every_repository_source_with_a_branch_field() {
     for label in [
         "\"Local Path\"",
