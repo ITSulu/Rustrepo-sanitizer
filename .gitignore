@@ -3,3 +3,5 @@
 /test-results/
 /playwright-report/
 /*-sanitized.tar
+# Local Command Code agent state (taste/preferences), not repository content.
+/.commandcode/
