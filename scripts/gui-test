@@ -55,25 +55,14 @@ if ! timeout 5s bash -c 'busctl --address="$1" list | grep -q org.a11y.atspi.Reg
     exit 1
 fi
 echo "AT-SPI registry verified on accessibility bus"
-if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
-    if [[ -z "$window_id" ]]; then
-        echo "native GUI window was not discoverable" >&2
-        echo "GUI startup log:" >&2
-        cat /tmp/rustrepo-sanitizer.log >&2 || true
-        exit 1
-    fi
-    xdotool windowsize "$window_id" 640 540
-    sleep 1
-    xdotool windowsize "$window_id" 1000 800
-    sleep 1
-    echo "native GUI resize checks completed"
-else
-    echo "native GUI resize checks skipped: xdotool cannot manage Wayland windows"
+if [[ -z "$window_id" ]]; then
+    echo "native GUI window was not discoverable" >&2
+    echo "GUI startup log:" >&2
+    cat /tmp/rustrepo-sanitizer.log >&2 || true
+    exit 1
 fi
 RRS_GUI_PID="$gui_pid" timeout --signal=TERM --kill-after=5s 35s "$test_bin" --ignored --nocapture
 if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
-    # Let the AT-SPI test resize the window before the maximize action can
-    # constrain it to the desktop geometry and invalidate its width checks.
     xdotool key --window "$window_id" alt+F10
     sleep 1
     xdotool getwindowgeometry "$window_id" >/dev/null

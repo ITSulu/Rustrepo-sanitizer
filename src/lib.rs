@@ -283,12 +283,15 @@ mod tests {
     }
 
     #[test]
-    fn native_gui_ci_verifies_resize_and_maximize_action() {
+    fn native_gui_ci_verifies_output_layout_and_maximize_action() {
         let workflow = include_str!("../.forgejo/workflows/ci.yml");
         let harness =
             std::fs::read_to_string("scripts/gui-test").expect("GUI harness is available");
+        let xa11y =
+            std::fs::read_to_string("tests/gui_xa11y.rs").expect("AT-SPI test is available");
         assert!(workflow.contains("x11-utils"));
-        assert!(harness.contains("xdotool windowsize"));
+        assert!(xa11y.contains("output.width >= 400"));
+        assert!(xa11y.contains("browse.x + 2"));
         assert!(harness.contains("xdotool key --window"));
         assert!(!harness.contains("_NET_WM_STATE_MAXIMIZED_VERT"));
         assert!(!harness.contains("_NET_WM_STATE_MAXIMIZED_HORZ"));
