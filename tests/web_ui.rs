@@ -166,7 +166,7 @@ async fn supported_formats_sits_inside_the_output_section() {
 }
 
 #[tokio::test]
-async fn top_navigation_offers_sanitize_and_option_reference() {
+async fn top_navigation_offers_separate_sanitize_option_reference_and_about_views() {
     let html = index_html().await;
     assert!(
         html.contains("id=\"nav\""),
@@ -177,11 +177,32 @@ async fn top_navigation_offers_sanitize_and_option_reference() {
         html.contains("href=\"#option-reference\""),
         "Option Reference nav entry"
     );
+    assert!(html.contains("href=\"#about\""), "About nav entry");
     assert!(html.contains("id=\"sanitize\""), "Sanitize section");
     assert!(
         html.contains("id=\"option-reference\""),
         "Option Reference section"
     );
+    assert!(html.contains("id=\"about\""), "About section");
+    assert!(html.contains("data-view=\"sanitize\""));
+    assert!(html.contains("data-view=\"option-reference\""));
+    assert!(html.contains("data-view=\"about\""));
+}
+
+#[tokio::test]
+async fn web_about_uses_the_shared_desktop_metadata() {
+    let html = index_html().await;
+    for content in [
+        itsulu_repo_sanitizer::help::ABOUT_PRODUCT_NAME,
+        itsulu_repo_sanitizer::help::ABOUT_LICENSE,
+        itsulu_repo_sanitizer::help::ABOUT_SLINT_LICENSE,
+        itsulu_repo_sanitizer::help::ABOUT_CREDITS,
+        itsulu_repo_sanitizer::help::ABOUT_WEBSITE_URL,
+        itsulu_repo_sanitizer::help::ABOUT_FORGEJO_URL,
+        "about-build-date",
+    ] {
+        assert!(html.contains(content), "About page must contain {content}");
+    }
 }
 
 #[tokio::test]

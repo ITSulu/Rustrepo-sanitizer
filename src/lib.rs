@@ -283,12 +283,15 @@ mod tests {
     }
 
     #[test]
-    fn native_gui_ci_verifies_resize_and_maximize_action() {
+    fn native_gui_ci_verifies_output_layout_and_maximize_action() {
         let workflow = include_str!("../.forgejo/workflows/ci.yml");
         let harness =
             std::fs::read_to_string("scripts/gui-test").expect("GUI harness is available");
+        let xa11y =
+            std::fs::read_to_string("tests/gui_xa11y.rs").expect("AT-SPI test is available");
         assert!(workflow.contains("x11-utils"));
-        assert!(harness.contains("xdotool windowsize"));
+        assert!(xa11y.contains("output.width >= 400"));
+        assert!(xa11y.contains("browse.x + 2"));
         assert!(harness.contains("xdotool key --window"));
         assert!(!harness.contains("_NET_WM_STATE_MAXIMIZED_VERT"));
         assert!(!harness.contains("_NET_WM_STATE_MAXIMIZED_HORZ"));
@@ -310,12 +313,12 @@ mod tests {
     }
 
     #[test]
-    fn current_release_metadata_targets_0_6_2() {
+    fn current_release_metadata_targets_0_6_3() {
         let manifest = include_str!("../Cargo.toml");
-        assert!(manifest.contains("version = \"0.6.2\""));
+        assert!(manifest.contains("version = \"0.6.3\""));
         // Every release documents what changed.
         let changelog = include_str!("../CHANGELOG.md");
-        assert!(changelog.contains("## 0.6.2"));
+        assert!(changelog.contains("## 0.6.3"));
     }
 
     #[test]

@@ -42,6 +42,20 @@ Rustrepo-sanitizer --web          # web UI at http://127.0.0.1:8787
 Rustrepo-sanitizer --gui --web    # both, in one process
 ```
 
+The sanitizer CLI is non-interactive and accepts the complete output and
+sanitization configuration as arguments:
+
+```bash
+Rustrepo-sanitizer sanitize . --output /tmp/review.tar.gz \
+  --archive tar --compression gzip --max-file-size 10MiB \
+  --include 'src/**' --exclude 'target/**' --report json \
+  --timestamp-name false
+```
+
+Use --help or -h for grouped options and a complete CLI example. ZIP
+passwords can be supplied with --password-file or --password-stdin; passwords
+are not accepted directly as command-line text.
+
 The archive contains sanitized source files plus `SANITIZATION-REPORT.md`,
 `REPOSITORY-INVENTORY.md`, `SECRET-AUDIT.md`, `SHA256SUMS`, and `manifest.json`.
 Reports contain counts, paths, reasons, and checksums—not secret values.

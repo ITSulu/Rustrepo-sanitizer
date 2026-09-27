@@ -38,6 +38,9 @@ sleep 1
 AT_SPI_BUS="$accessibility_bus" /usr/lib/at-spi2-registryd --dbus-name=org.a11y.atspi.Registry >/tmp/rustrepo-atspi-registry.log 2>&1 &
 registry_pid=$!
 sleep 1
+# Prefer the available X11 session for reproducible native resize and geometry
+# checks; those checks cannot control a Wayland-owned window with xdotool.
+if [[ -n "${DISPLAY:-}" ]]; then unset WAYLAND_DISPLAY; fi
 setsid target/debug/Rustrepo-sanitizer --gui >/tmp/rustrepo-sanitizer.log 2>&1 &
 gui_pid=$!
 window_id=""
@@ -52,23 +55,16 @@ if ! timeout 5s bash -c 'busctl --address="$1" list | grep -q org.a11y.atspi.Reg
     exit 1
 fi
 echo "AT-SPI registry verified on accessibility bus"
+if [[ -z "$window_id" ]]; then
+    echo "native GUI window was not discoverable" >&2
+    echo "GUI startup log:" >&2
+    cat /tmp/rustrepo-sanitizer.log >&2 || true
+    exit 1
+fi
+RRS_GUI_PID="$gui_pid" timeout --signal=TERM --kill-after=5s 35s "$test_bin" --ignored --nocapture
 if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
-    if [[ -z "$window_id" ]]; then
-        echo "native GUI window was not discoverable" >&2
-        echo "GUI startup log:" >&2
-        cat /tmp/rustrepo-sanitizer.log >&2 || true
-        exit 1
-    fi
-    xdotool windowsize "$window_id" 640 540
-    sleep 1
-    xdotool windowsize "$window_id" 1000 800
-    sleep 1
-    echo "native GUI resize checks completed"
     xdotool key --window "$window_id" alt+F10
     sleep 1
     xdotool getwindowgeometry "$window_id" >/dev/null
     echo "native GUI maximize action accepted"
-else
-    echo "native GUI resize checks skipped: xdotool cannot manage Wayland windows"
 fi
-timeout --signal=TERM --kill-after=5s 35s "$test_bin" --ignored --nocapture

@@ -250,6 +250,27 @@ async fn ssr_validation_error_re_renders_alert_and_echoes_values() {
 }
 
 #[tokio::test]
+async fn ssr_git_url_validation_rejects_loopback_before_creating_job() {
+    let root = tempfile::tempdir().unwrap();
+    let state = test_state(root.path(), None, IntegrationsConfig::default());
+    init_executor();
+    let response = build_router(state.clone())
+        .oneshot(form_request(
+            "/ui/jobs",
+            &[("mode", "git_url"), ("url", "https://127.0.0.1/secret.git")],
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(state.jobs.is_empty(), "unsafe URL must not create a job");
+    let html = String::from_utf8_lossy(&response.into_body().collect().await.unwrap().to_bytes())
+        .into_owned();
+    assert!(html.contains("id=\"form-error\""), "{html}");
+    assert!(html.contains("private, loopback, or reserved"), "{html}");
+    assert!(html.contains("https://127.0.0.1/secret.git"), "{html}");
+}
+
+#[tokio::test]
 async fn dry_run_completes_without_an_archive() {
     let root = tempfile::tempdir().unwrap();
     let repo = git_repo(root.path());

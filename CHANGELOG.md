@@ -3,6 +3,14 @@
 This project follows the `MAJOR.MINOR.PATCH` policy documented in
 `CONTRIBUTING.md`. Every release is published from a merged pull request.
 
+## 0.6.3 (2026-09-27)
+
+- Give the Web UI distinct Sanitize, Option Reference, and About views.
+- Share About metadata between the Web UI and desktop GUI.
+- Widen Web Include/Exclude glob presets and repair dynamic Remove controls.
+- Improve GUI Output File expansion and label contrast.
+- Document and test complete non-interactive CLI workflows.
+
 ## 0.6.2 (2026-09-26)
 
 - Added binary size units across every interface. The CLI `--max-file-size`

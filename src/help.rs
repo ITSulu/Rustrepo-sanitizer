@@ -62,6 +62,7 @@ pub const PASSWORD_REQUIRE_SPECIAL: &str =
 // Advanced / general.
 pub const VERBOSE: &str = "Print per-file progress details.";
 pub const QUIET: &str = "Suppress the final summary line.";
+pub const CLI_EXAMPLE: &str = "Complete CLI example:\n  Rustrepo-sanitizer sanitize . --output /tmp/review.tar.gz --archive tar --compression gzip --max-file-size 10MiB --include 'src/**' --exclude 'target/**' --report json --timestamp-name false";
 
 // GUI-only controls.
 pub const REPO_SOURCE: &str = "Choose how the repository is obtained.";
@@ -98,6 +99,20 @@ pub const SETTINGS_CLOSE: &str = "Close this window without applying changes.";
 pub const ABOUT_WEBSITE: &str = "Open the project website in a browser.";
 pub const ABOUT_FORGEJO: &str = "Open the authoritative Forgejo repository.";
 pub const ABOUT_CLOSE: &str = "Close this window.";
+
+/// About-page metadata shared by the Slint and Web interfaces.
+pub const ABOUT_PRODUCT_NAME: &str = "Rustrepo-sanitizer";
+pub const ABOUT_LICENSE: &str = "Apache License 2.0";
+pub const ABOUT_SLINT_LICENSE: &str = "Slint is used under its applicable selected Slint license.";
+pub const ABOUT_CREDITS: &str = "Architecture, modeling, direction, and technical review by Nicholas; implementation support provided by AI agents including OpenAI Codex.";
+pub const ABOUT_WEBSITE_URL: &str = "https://itsulu.com/Rustrepo";
+pub const ABOUT_FORGEJO_URL: &str = "https://git.itsulu.com/itsulu/Rustrepo-sanitizer";
+
+pub fn about_build_date() -> String {
+    option_env!("SOURCE_DATE_EPOCH")
+        .map(|value| format!("SOURCE_DATE_EPOCH={value}"))
+        .unwrap_or_else(|| "reproducible build metadata unavailable".to_owned())
+}
 
 /// CLI argument descriptions grouped by purpose.
 pub const CLI_HELP: &[&str] = &[

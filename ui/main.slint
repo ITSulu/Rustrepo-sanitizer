@@ -213,7 +213,7 @@ component HelpfulLabel inherits Rectangle {
     in property <string> text;
     in property <string> help: "";
     in property <string> a11y-label: "";
-    in property <color> text-color: #000000;
+    in property <color> text-color: #e5e7eb;
     preferred-width: label.preferred-width;
     preferred-height: label.preferred-height;
     property <bool> hovered: hover.has-hover;
@@ -280,17 +280,23 @@ export component AboutWindow inherits Window {
     min-width: 420px;
     min-height: 320px;
     in property <string> version;
+    in property <string> product-name;
     in property <string> build-date;
+    in property <string> license;
+    in property <string> slint-license;
+    in property <string> credits;
+    in property <string> website-url;
+    in property <string> forgejo-url;
     callback open-website(string);
     VerticalBox { padding: 24px; spacing: 10px;
-        Text { text: "Rustrepo-sanitizer"; font-size: 24px; }
-        Text { text: "Version " + root.version; }
-        Text { text: "Build date: " + root.build-date; }
-        Text { text: "Apache License 2.0"; }
-        Text { text: "Slint is used under its applicable selected Slint license."; wrap: word-wrap; }
-        Text { text: "Architecture, modeling, direction, and technical review by Nicholas; implementation support provided by AI agents including OpenAI Codex."; wrap: word-wrap; }
-        HelpfulButton { text: "Project website"; help: "Open the project website in a browser."; a11y-label: "Open project website"; clicked => { root.open-website("https://itsulu.com/Rustrepo"); } }
-        HelpfulButton { text: "Authoritative Forgejo repository"; help: "Open the authoritative Forgejo repository."; a11y-label: "Open Forgejo repository"; clicked => { root.open-website("https://git.itsulu.com/itsulu/Rustrepo-sanitizer"); } }
+        Text { text: root.product-name; font-size: 24px; accessible-label: "About product name"; }
+        Text { text: "Version " + root.version; accessible-label: "Version " + root.version; }
+        Text { text: "Build date: " + root.build-date; accessible-label: "Build date: " + root.build-date; }
+        Text { text: root.license; accessible-label: root.license; }
+        Text { text: root.slint-license; wrap: word-wrap; accessible-label: root.slint-license; }
+        Text { text: root.credits; wrap: word-wrap; accessible-label: root.credits; }
+        HelpfulButton { text: "Project website"; help: "Open the project website in a browser."; a11y-label: "Open project website"; clicked => { root.open-website(root.website-url); } }
+        HelpfulButton { text: "Authoritative Forgejo repository"; help: "Open the authoritative Forgejo repository."; a11y-label: "Open Forgejo repository"; clicked => { root.open-website(root.forgejo-url); } }
         HelpfulButton { text: "Close"; help: "Close this window."; a11y-label: "Close about"; clicked => { root.close(); } }
     }
     HelpOverlay { window-width: root.width; window-height: root.height; }
@@ -393,8 +399,8 @@ export component MainWindow inherits Window {
         }
         HelpfulLabel { text: "Output File"; help: "Destination archive path; leave blank to derive a filename in the repository root."; a11y-label: "Output file label"; }
         HorizontalLayout { spacing: 8px;
-            output := HelpfulLineEdit { text <=> root.output-path; placeholder-text: "Automatic filename"; help: "Destination archive path; leave blank to derive a filename in the repository root."; a11y-id: "output-path"; a11y-label: "Output file path"; user-edited(_) => { root.output-path-automatic = false; } }
-            HelpfulButton { text: "Browse…"; help: "Select the output folder; the filename is derived automatically."; a11y-id: "browse-output"; a11y-label: "Browse for output folder"; clicked => { root.browse-output(repository.text, format.current-index, compression.current-index, timestamp.checked); } }
+            output := HelpfulLineEdit { preferred-width: 320px; horizontal-stretch: 1; text <=> root.output-path; placeholder-text: "Automatic filename"; help: "Destination archive path; leave blank to derive a filename in the repository root."; a11y-id: "output-path"; a11y-label: "Output file path"; user-edited(_) => { root.output-path-automatic = false; } }
+            HelpfulButton { horizontal-stretch: 0; text: "Browse…"; help: "Select the output folder; the filename is derived automatically."; a11y-id: "browse-output"; a11y-label: "Browse for output folder"; clicked => { root.browse-output(repository.text, format.current-index, compression.current-index, timestamp.checked); } }
         }
         untracked := HelpfulCheckBox { text: "Include untracked files"; help: "Also include files Git does not track yet, subject to safety filters."; a11y-id: "include-untracked"; a11y-label: "Include untracked files"; }
         dry-run := HelpfulCheckBox { text: "Dry run (preview only)"; help: "Scan and report results without writing an archive."; a11y-id: "dry-run"; a11y-label: "Dry run"; }

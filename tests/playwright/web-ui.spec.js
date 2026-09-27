@@ -38,18 +38,50 @@ async function submitAndWaitForJob(page, { timeout = 120000 } = {}) {
 }
 
 test.describe('web UI', () => {
-  test('renders the sanitize and option reference navigation', async ({ page }) => {
+  test('renders separate Sanitize, Option Reference, and About views', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('nav#nav a[href="#sanitize"]')).toHaveText('Sanitize');
     await expect(page.locator('nav#nav a[href="#option-reference"]')).toHaveText('Option Reference');
+    await expect(page.locator('nav#nav a[href="#about"]')).toHaveText('About');
     await expect(page.locator('#sanitize')).toBeVisible();
+    await expect(page.locator('#option-reference')).toBeHidden();
+    await expect(page.locator('#about')).toBeHidden();
+    await page.locator('nav#nav a[href="#option-reference"]').click();
     await expect(page.locator('#option-reference')).toBeVisible();
+    await expect(page.locator('#sanitize')).toBeHidden();
+    await expect(page.locator('#about')).toBeHidden();
+    await page.locator('nav#nav a[href="#about"]').click();
+    await expect(page.locator('#about')).toBeVisible();
+    await expect(page.locator('#sanitize')).toBeHidden();
+    await expect(page.locator('#option-reference')).toBeHidden();
   });
 
   test('navigation moves between sections', async ({ page }) => {
     await page.goto('/');
     await page.locator('nav#nav a[href="#option-reference"]').click();
     await expect(page).toHaveURL(/#option-reference$/);
+    await expect(page.locator('#nav a[aria-current="page"]')).toHaveText('Option Reference');
+    await expect(page.locator('#sanitize')).toBeHidden();
+    await page.locator('nav#nav a[href="#about"]').click();
+    await expect(page.locator('#about')).toBeVisible();
+    await expect(page.locator('#nav a[aria-current="page"]')).toHaveText('About');
+  });
+
+  test('About presents shared GUI metadata', async ({ page }) => {
+    await page.goto('/#about');
+    await expect(page.locator('#about')).toBeVisible();
+    await expect(page.locator('#about-product')).toHaveText('Rustrepo-sanitizer');
+    await expect(page.locator('#about-version')).toContainText('0.6.3');
+    await expect(page.locator('#about-license')).toHaveText('Apache License 2.0');
+    await expect(page.locator('#about-slint-license')).toHaveText(
+      'Slint is used under its applicable selected Slint license.',
+    );
+    await expect(page.locator('#about-credits')).toContainText('OpenAI Codex');
+    await expect(page.locator('#about-website')).toHaveAttribute('href', 'https://itsulu.com/Rustrepo');
+    await expect(page.locator('#about-forgejo')).toHaveAttribute(
+      'href',
+      'https://git.itsulu.com/itsulu/Rustrepo-sanitizer',
+    );
   });
 
   test('exposes title-cased headings and labels', async ({ page }) => {
@@ -65,13 +97,18 @@ test.describe('web UI', () => {
       'Include Globs',
       'Exclude Globs',
       'Supported Formats',
-      'Option Reference',
     ]) {
       // Match the visible label, not a hidden placeholder of the same text.
       await expect(
         page.locator('label, legend, h1, h2, h3').filter({ hasText: new RegExp(`^${text}$`) }).first(),
       ).toBeVisible();
     }
+    await page.locator('nav#nav a[href="#option-reference"]').click();
+    await expect(page.locator('#option-reference h2')).toHaveText('Option Reference');
+    await expect(page.locator('#option-reference h2')).toBeVisible();
+    await page.locator('nav#nav a[href="#about"]').click();
+    await expect(page.locator('#about h2')).toHaveText('About');
+    await expect(page.locator('#about h2')).toBeVisible();
   });
 
   test('repository source layout orders Forgejo below the local path with a branch field', async ({ page }) => {
@@ -138,7 +175,7 @@ test.describe('web UI', () => {
   });
 
   test('option reference tooltips appear only after a long hover', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/#option-reference');
     const field = page.locator('#option-reference .tip').first();
     const tip = page.locator('#tip-repository');
     // The dwell time gates the transition, so opacity carries the timing.
@@ -189,6 +226,28 @@ test.describe('web UI', () => {
     await page.locator('#include-choice').selectOption('src/**/*.rs');
     await page.locator('#include-entry').fill('custom/**');
     await expect(page.locator('#include-entry')).toHaveValue('custom/**');
+  });
+
+  test('include and exclude preset controls are wide and retain add/remove behavior', async ({ page }) => {
+    await page.goto('/');
+    for (const [kind, preset, entry, add, list] of [
+      ['include', 'src/**/*.rs', '#include-entry', '#include-add', '#include-list'],
+      ['exclude', 'target/**', '#exclude-entry', '#exclude-add', '#exclude-list'],
+    ]) {
+      const select = page.locator(`#${kind}-choice`);
+      const box = await select.boundingBox();
+      expect(box.width).toBeGreaterThanOrEqual(260);
+      await select.selectOption(preset);
+      await page.locator(add).click();
+      await expect(page.locator(list)).toContainText(preset);
+      await page.locator(entry).fill(`custom-${kind}/**`);
+      await page.locator(add).click();
+      await expect(page.locator(list)).toContainText(`custom-${kind}/**`);
+      await page.locator(list).getByRole('button', { name: `Remove custom-${kind}/**` }).click();
+      const submitted = await page.locator(`#${kind}-globs`).inputValue();
+      expect(submitted).not.toContain(`custom-${kind}/**`);
+      await expect(page.locator(list)).not.toContainText(`custom-${kind}/**`);
+    }
   });
 
   test('validation errors are announced and keep the entered values', async ({ page }) => {
@@ -292,11 +351,14 @@ test.describe('web UI', () => {
     await page.locator('#mode').selectOption('git_url');
     await page.locator('#url').fill('https://127.0.0.1/secret.git');
     await page.locator('button[type=submit]').click();
-    // A literal private address can be refused either while validating the
-    // request (an alert on the form) or when the job runs, so accept both.
-    const rejection = /private, loopback, or reserved/i;
-    await expect(page.locator('#form-error, .status[data-kind="error"]').first())
-      .toContainText(rejection, { timeout: 60000 });
+    // The server must reject this during submission and re-render the form.
+    // Waiting for navigation also ensures the assertion observes the response,
+    // not a pre-submit state.
+    await page.waitForLoadState('domcontentloaded');
+    const alert = page.locator('#form-error');
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText(/private, loopback, or reserved/i);
+    await expect(page.locator('#url')).toHaveValue('https://127.0.0.1/secret.git');
   });
 
   test('is keyboard navigable with a visible focus indicator', async ({ page }) => {

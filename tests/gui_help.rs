@@ -2,6 +2,7 @@
 use std::collections::BTreeSet;
 
 const UI: &str = include_str!("../ui/main.slint");
+const GUI: &str = include_str!("../src/gui.rs");
 
 /// Collect every non-empty `help: "..."` value in the Slint source.
 fn help_strings(source: &str) -> BTreeSet<String> {
@@ -288,6 +289,58 @@ fn maximum_file_size_has_a_unit_selector_and_label() {
         UI.contains("\"Maximum File Size\""),
         "the GUI label must use title case"
     );
+}
+
+#[test]
+fn field_labels_use_light_text_and_output_path_stretches_before_browse() {
+    let label = UI
+        .split("component HelpfulLabel inherits Rectangle {")
+        .nth(1)
+        .and_then(|rest| rest.split("export component HelpWindow").next())
+        .expect("HelpfulLabel component");
+    assert!(
+        label.contains("text-color: #e5e7eb") || label.contains("text-color: #d1d5db"),
+        "field label default must be light grey against the dark form background"
+    );
+    assert!(!label.contains("text-color: #000000"));
+
+    let output_row = UI
+        .split("HelpfulLabel { text: \"Output File\"")
+        .nth(1)
+        .and_then(|rest| rest.split("untracked :=").next())
+        .expect("Output File row");
+    assert!(output_row.contains("horizontal-stretch: 1"));
+    assert!(
+        output_row.find("output := HelpfulLineEdit").unwrap()
+            < output_row.find("text: \"Browse…\"").unwrap()
+    );
+}
+
+#[test]
+fn about_window_uses_the_shared_about_metadata() {
+    for property in [
+        "product-name",
+        "license",
+        "slint-license",
+        "credits",
+        "website-url",
+        "forgejo-url",
+    ] {
+        assert!(UI.contains(&format!("in property <string> {property};")));
+    }
+    for binding in [
+        "set_product_name(crate::help::ABOUT_PRODUCT_NAME",
+        "set_build_date(crate::help::about_build_date()",
+        "set_license(crate::help::ABOUT_LICENSE",
+        "set_slint_license(crate::help::ABOUT_SLINT_LICENSE",
+        "set_credits(crate::help::ABOUT_CREDITS",
+        "set_website_url(crate::help::ABOUT_WEBSITE_URL",
+        "set_forgejo_url(crate::help::ABOUT_FORGEJO_URL",
+    ] {
+        assert!(GUI.contains(binding), "AboutWindow must bind {binding}");
+    }
+    assert!(UI.contains("MenuItem { title: \"About\"; activated => { root.show-about(); } }"));
+    assert!(GUI.contains("window.on_show_about(move ||"));
 }
 
 #[test]
